@@ -289,6 +289,7 @@ async function selectVersion(index, options) {
 
   renderKernelFacts(version);
   renderValidation(version);
+  sheetSvg = null;
   $("#drawBtn").disabled = false;
   $("#cmdIn").disabled = !S.health || !S.health.can_generate;
   $("#applyBtn").disabled = $("#cmdIn").disabled;
@@ -607,8 +608,90 @@ addEventListener("keydown", e => {
   if (key === "f") Viewer.fit(true);
   if (key === "w") $("#wireBtn").click();
   if (key === "h") $("#histBtn").click();
-  if (key === "escape") { $("#lightbox").hidden = true; $("#diag").hidden = true; }
+  if (key === "escape") {
+    $("#lightbox").hidden = true;
+    $("#diag").hidden = true;
+    $("#sheet").classList.remove("on");
+  }
+  if (key === "d") $("#drawBtn").click();
 });
+
+
+/* ═══════════════════════ drawing sheet ═══════════════════════ */
+
+let sheetSvg = null;
+
+async function openDrawing() {
+  const version = S.versions[S.selected];
+  if (!version) { warnToast("Generate a part first."); return; }
+
+  const button = $("#drawBtn");
+  button.disabled = true;
+  $("#paper").innerHTML = `<div style="padding:60px;color:#666;font-family:monospace;font-size:12px">Projecting the solid…</div>`;
+  $("#sheet").classList.add("on");
+
+  try {
+    const url = API.artifact(S.jobId, version.iteration, "drawing.svg");
+    const response = await fetch(url);
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try { detail = (await response.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    sheetSvg = await response.text();
+    $("#paper").innerHTML = sheetSvg;
+  } catch (error) {
+    sheetSvg = null;
+    $("#paper").innerHTML =
+      `<div style="padding:60px;color:#B00;font-family:monospace;font-size:12px;max-width:640px">`
+      + `Could not build the drawing.<br><br>${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* Rasterise the sheet in the browser. The SVG is self-contained - no external
+   references - so it can be drawn straight onto a canvas. */
+function exportDrawingPng() {
+  if (!sheetSvg) { warnToast("Open a drawing first."); return; }
+  const svg = $("#paper").querySelector("svg");
+  const width = +svg.getAttribute("width") || 1120;
+  const height = +svg.getAttribute("height") || 780;
+  const scale = 2;
+
+  const blob = new Blob([sheetSvg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+
+    canvas.toBlob(pngBlob => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(pngBlob);
+      link.download = `${S.jobId}_drawing.png`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      toast("Drawing exported as PNG");
+    }, "image/png");
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(url);
+    warnToast("Could not rasterise the drawing.");
+  };
+  image.src = url;
+}
+
+$("#drawBtn").onclick = openDrawing;
+$("#back3d").onclick = () => $("#sheet").classList.remove("on");
+$("#expPng").onclick = exportDrawingPng;
 
 /* ═══════════════════════ boot ═══════════════════════ */
 

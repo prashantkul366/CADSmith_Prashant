@@ -157,6 +157,28 @@ def main() -> int:
               "Rejected by the Judge" in rejected)
         page.screenshot(path=str(out / "05-rejected-iteration.png"))
 
+        print("\nEngineering drawing")
+        page.click('.iter[data-i="1"]')
+        page.wait_for_timeout(2000)
+        page.click("#drawBtn")
+        page.wait_for_selector("#paper svg", timeout=90000)
+        page.wait_for_timeout(600)
+        check("sheet opens", page.locator("#sheet.on").count() == 1)
+        # SVG <text> has no innerText; read textContent from the DOM instead.
+        labels = page.evaluate(
+            "[...document.querySelectorAll('#paper svg text')].map(t => t.textContent)")
+        for view in ("FRONT VIEW", "TOP VIEW", "RIGHT VIEW", "ISOMETRIC"):
+            check(f"{view} projected", view in labels)
+        check("title block carries kernel dimensions",
+              any("100.0 x 60.0 x 55.0 mm" in t for t in labels),
+              next((t for t in labels if " x " in t), ""))
+        check("projection geometry present",
+              page.locator("#paper svg path").count() > 40,
+              f"{page.locator('#paper svg path').count()} paths")
+        page.screenshot(path=str(out / "08-drawing.png"))
+        page.click("#back3d")
+        page.wait_for_timeout(400)
+
         print("\nViews")
         page.click('.vt[data-view="front"]')
         page.wait_for_timeout(900)

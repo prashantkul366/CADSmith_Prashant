@@ -25,6 +25,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
+from .drawing import ensure_sheet
 from .jobs import JobManager, JobOptions, STATUS_DONE, STATUS_ERROR
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -317,6 +318,22 @@ async def stream_events(job_id: str, request: Request, from_seq: int = 0):
 def get_artifact(job_id: str, version: int, artifact: str):
     if artifact not in ALLOWED_ARTIFACTS:
         raise HTTPException(status_code=404, detail="Unknown artifact.")
+
+    # The drawing sheet is derived from the STEP solid, so it is built on
+    # first request and cached beside the other artifacts.
+    if artifact == "drawing.svg":
+        job = manager.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="No such job.")
+        version_dir = job.directory / f"v{int(version)}"
+        if not version_dir.is_dir():
+            raise HTTPException(status_code=404, detail="No such version.")
+        try:
+            ensure_sheet(version_dir, job.prompt, job.id, int(version))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not build the drawing: {exc}") from exc
 
     path = manager.artifact_path(job_id, version, artifact)
     if path is None:
