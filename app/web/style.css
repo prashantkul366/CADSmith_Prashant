@@ -509,3 +509,19 @@ textarea.src{
 .samples .sample small{font-family:var(--ui);font-size:11px;color:var(--ink-2);
   letter-spacing:0;line-height:1.45;display:block}
 .samples{grid-template-columns:1fr}
+
+/* ---------- history rows carry a replay action ---------- */
+.hrow{display:flex;align-items:stretch;gap:6px;margin-bottom:6px}
+.hrow .hitem{flex:1;margin-bottom:0}
+.hreplay{flex:none;width:34px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--panel-2);color:var(--ink-dim);display:grid;place-items:center;
+  cursor:pointer;transition:.13s}
+.hreplay:hover{border-color:var(--accent-dim);color:var(--accent);
+  background:rgba(77,141,246,.08)}
+.hreplay svg{width:13px;height:13px;fill:currentColor;stroke:none}
+.hbadge.replay{color:var(--accent);border-color:var(--accent-dim)}
+.hbadge.fixture{color:var(--ink-dim)}
+
+/* header marker while a replay is on screen */
+.pill.replaying{color:var(--accent);border-color:var(--accent-dim);
+  background:rgba(77,141,246,.1)}

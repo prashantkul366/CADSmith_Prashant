@@ -14,6 +14,7 @@ Queued jobs wait rather than fail.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import traceback
@@ -23,16 +24,22 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .edits import apply_changes, describe, plan_edit
 from .events import (
     EventSink,
+    PHASE_EDIT,
+    PHASE_EXECUTE,
     PHASE_JOB,
     STATUS_FAILED,
     STATUS_INFO,
     STATUS_OK,
     STATUS_STARTED,
 )
+from .replay import clone_run, is_replayable, replay_into
 from .instrument import (
+    InstrumentedExecutor,
     InstrumentedPipeline,
+    InstrumentedValidator,
     RunContext,
     install_agent_hooks,
     set_context,
@@ -86,6 +93,7 @@ class Job:
     tokens: dict = field(default_factory=dict)
     llm_calls: int = 0
     source: str = "live"
+    replay_of: Optional[str] = None
 
     def summary(self) -> dict:
         return {
@@ -103,6 +111,7 @@ class Job:
             "llm_calls": self.llm_calls,
             "options": asdict(self.options),
             "source": self.source,
+            "replay_of": self.replay_of,
         }
 
 
@@ -233,6 +242,214 @@ class JobManager:
             sink.close()
             self._write_meta(job)
 
+    # -- natural-language edits ---------------------------------------------
+
+    def submit_edit(self, job: Job, instruction: str,
+                    base_version: Optional[int] = None) -> None:
+        """Queue an edit against ``base_version``, or the latest version.
+
+        The base is explicit because the viewer can be showing an earlier
+        attempt: editing must change what the person is looking at, not
+        whatever happens to be newest.
+        """
+        sink = self.sink(job.id)
+        if sink is not None:
+            sink.emit(PHASE_JOB, STATUS_QUEUED, "Edit queued.",
+                      instruction=instruction, base_version=base_version)
+        job.status = STATUS_QUEUED
+        self._pool.submit(self._run_edit, job, instruction, base_version)
+
+    def _run_edit(self, job: Job, instruction: str,
+                  base_version: Optional[int] = None) -> None:
+        """Apply an edit, by parameter patch where possible or the Refiner.
+
+        The two paths differ in more than speed.  A patch changes a number the
+        script already declares, so the kernel alone can confirm the result.
+        The Refiner writes new code, so the full validation - vision Judge
+        included - is worth its cost.
+        """
+        sink = self.sink(job.id)
+        ctx = self.context(job.id)
+        if sink is None:
+            return
+        if ctx is None:
+            # Never fail silently here: the client is waiting on the stream.
+            job.status = STATUS_DONE
+            sink.emit(PHASE_JOB, STATUS_FAILED,
+                      "That run cannot be edited in this session.", edit=True)
+            return
+
+        set_context(ctx)
+        job.status = STATUS_RUNNING
+        started = time.time()
+
+        try:
+            from autofab import agents
+
+            agents.reset_token_usage()
+            if base_version is None:
+                previous = job.versions[-1]
+            else:
+                previous = next(
+                    (v for v in job.versions
+                     if v.get("iteration") == base_version),
+                    job.versions[-1])
+            source_dir = job.directory / f"v{previous['iteration']}"
+            code = (source_dir / "code.py").read_text()
+            next_index = max(v["iteration"] for v in job.versions) + 1
+
+            plan = plan_edit(code, instruction)
+            if plan.possible:
+                new_code = apply_changes(code, plan.changes)
+                ctx.method = "parameter patch"
+                ctx.changes = [c.to_dict() for c in plan.changes]
+                sink.emit(PHASE_EDIT, STATUS_OK, describe(plan.changes),
+                          method=ctx.method, instruction=instruction,
+                          changes=ctx.changes,
+                          base_version=previous["iteration"])
+            elif not os.getenv("ANTHROPIC_API_KEY"):
+                # The patch path needs no model, so it stays available without
+                # a key; this one does not.
+                job.status = STATUS_DONE
+                sink.emit(
+                    PHASE_JOB, STATUS_FAILED,
+                    f"That is not a parameter change ({plan.reason}), so it "
+                    f"needs the Refiner agent - but ANTHROPIC_API_KEY is not "
+                    f"set. Try naming a dimension the script declares.",
+                    edit=True)
+                return
+            else:
+                ctx.method = "refiner agent"
+                ctx.changes = []
+                sink.emit(PHASE_EDIT, STATUS_INFO,
+                          f"Not a parameter change ({plan.reason}) - "
+                          f"asking the Refiner agent.",
+                          method=ctx.method, instruction=instruction,
+                          reason=plan.reason)
+                new_code = agents.refine_geometry(
+                    code, instruction, job.design_plan, job.prompt)
+
+            ctx.source = "edit"
+            ctx.instruction = instruction
+
+            executor = InstrumentedExecutor(
+                output_dir=str(job.directory / "work"), timeout_seconds=60)
+            part = f"{PART_NAME}_iter{next_index}"
+            result = executor.execute(new_code, name=part)
+
+            # Only the agent path gets error repair: it wrote the code, so a
+            # failure is its to fix.  A failed patch means the requested value
+            # is not buildable, which the person needs to be told, not hidden.
+            retries = 0
+            while (not result.success and ctx.method == "refiner agent"
+                   and retries < job.options.max_error_retries):
+                retries += 1
+                new_code = agents.fix_error(new_code, result.error, job.design_plan)
+                result = executor.execute(new_code, name=part)
+
+            if not result.success:
+                job.status = STATUS_DONE
+                sink.emit(
+                    PHASE_JOB, STATUS_FAILED,
+                    f"That change could not be built: {result.error_type}. "
+                    f"The previous version is unchanged.",
+                    error=(result.error or "")[-2000:], edit=True)
+                return
+
+            validator = InstrumentedValidator()
+            if ctx.method == "refiner agent":
+                render = str(job.directory / "work" / f"{part}_render.png")
+                validator.validate(
+                    result.geometry_json,
+                    code=new_code,
+                    prompt=f"{job.prompt}\n\nRequested change: {instruction}",
+                    stl_path=result.stl_path if job.options.use_vision else "",
+                    render_save_path=render if job.options.use_vision else "",
+                )
+            else:
+                # No prompt or code, so autofab.validator runs its kernel
+                # checks and skips the Judge (validator.py:150).
+                validator.validate(result.geometry_json)
+
+            job.versions = list(ctx.versions)
+            job.tokens = agents.get_token_usage()
+            job.status = STATUS_DONE
+            sink.emit(PHASE_JOB, STATUS_OK, "Edit applied.",
+                      edit=True, method=ctx.method,
+                      total_ms=(time.time() - started) * 1000,
+                      tokens=job.tokens, iterations=len(job.versions))
+        except Exception as exc:
+            job.status = STATUS_DONE
+            sink.emit(PHASE_JOB, STATUS_FAILED,
+                      f"The edit failed: {type(exc).__name__}: {exc}",
+                      traceback=traceback.format_exc()[-4000:], edit=True)
+        finally:
+            ctx.source, ctx.method = "pipeline", ""
+            ctx.instruction, ctx.changes = "", []
+            set_context(None)
+            self._write_meta(job)
+
+    # -- replay --------------------------------------------------------------
+
+    def can_replay(self, job: Job) -> bool:
+        return is_replayable(job.directory)
+
+    def create_replay(self, source: Job, speed: float = 6.0) -> Job:
+        """Register a replay of a recorded run and queue it.
+
+        The artifacts are copied rather than referenced, so the replay is a
+        self-contained run in its own right - it survives the original being
+        deleted, and it cannot mutate what it was made from.
+        """
+        job_id, directory = clone_run(source.directory, self.runs_dir)
+
+        job = Job(
+            id=job_id,
+            prompt=source.prompt,
+            options=source.options,
+            directory=directory,
+            design_plan=source.design_plan,
+            converged=source.converged,
+            versions=list(source.versions),
+            source="replay",
+            replay_of=source.id,
+        )
+        sink = EventSink(path=directory / "events.jsonl")
+        ctx = RunContext(sink=sink, job_dir=directory, part_name=PART_NAME)
+
+        with self._lock:
+            self._jobs[job_id] = job
+            self._sinks[job_id] = sink
+            self._contexts[job_id] = ctx
+
+        self._write_meta(job)
+        sink.emit(PHASE_JOB, STATUS_QUEUED,
+                  f"Replaying a recorded run ({source.id}).",
+                  prompt=source.prompt, replay_of=source.id, replayed=True)
+        self._pool.submit(self._run_replay, job, source.directory, speed)
+        return job
+
+    def _run_replay(self, job: Job, source_dir: Path, speed: float) -> None:
+        sink = self.sink(job.id)
+        if sink is None:
+            return
+        job.status = STATUS_RUNNING
+        job.started_at = time.time()
+        try:
+            replay_into(sink, source_dir, speed=speed)
+            job.status = STATUS_DONE
+            sink.emit(PHASE_JOB, STATUS_OK, "Replay finished.",
+                      converged=job.converged, replayed=True,
+                      iterations=len(job.versions))
+        except Exception as exc:
+            job.status = STATUS_ERROR
+            job.error = f"{type(exc).__name__}: {exc}"
+            sink.emit(PHASE_JOB, STATUS_FAILED, job.error, replayed=True)
+        finally:
+            job.finished_at = time.time()
+            sink.close()
+            self._write_meta(job)
+
     def _write_meta(self, job: Job) -> None:
         try:
             (job.directory / "meta.json").write_text(
@@ -274,15 +491,25 @@ class JobManager:
                 tokens=meta.get("tokens") or {},
                 llm_calls=meta.get("llm_calls", 0),
                 source=meta.get("source", "live"),
+                replay_of=meta.get("replay_of"),
             )
             # A job interrupted by a restart can never resume; mark it honestly.
             if job.status in (STATUS_QUEUED, STATUS_RUNNING):
                 job.status = STATUS_ERROR
                 job.error = "Interrupted by a server restart."
 
-            sink = EventSink.from_file(directory / "events.jsonl")
+            # A restored run must stay editable, which needs both a writable
+            # log and a context carrying the versions it already has.
+            sink = EventSink.from_file(directory / "events.jsonl",
+                                       keep_appending=True)
+            ctx = RunContext(sink=sink, job_dir=directory, part_name=PART_NAME)
+            ctx.versions = list(job.versions)
+            if job.versions:
+                ctx.iteration = max(v.get("iteration", 0) for v in job.versions)
+
             with self._lock:
                 self._jobs[job.id] = job
                 self._sinks[job.id] = sink
+                self._contexts[job.id] = ctx
             restored += 1
         return restored

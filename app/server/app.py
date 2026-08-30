@@ -244,6 +244,67 @@ async def create_job(request: Request) -> JSONResponse:
     return JSONResponse({"job": job.summary()}, status_code=201)
 
 
+@app.post("/api/jobs/{job_id}/edit")
+async def edit_job(job_id: str, request: Request) -> JSONResponse:
+    """Apply a natural-language change to the job's latest version."""
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such job.")
+    if not job.versions:
+        raise HTTPException(
+            status_code=409, detail="That run produced nothing to edit.")
+    if job.status in ("queued", "running"):
+        raise HTTPException(
+            status_code=409, detail="That run is still working; wait for it to finish.")
+
+    body = await _json_body(request)
+    instruction = (body.get("instruction") or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="An instruction is required.")
+    if len(instruction) > 1000:
+        raise HTTPException(status_code=400, detail="Instruction is too long.")
+
+    status = _health()
+    if not status["checks"]["cadquery"]["ok"]:
+        raise HTTPException(
+            status_code=503,
+            detail="CadQuery is not available, so nothing can be rebuilt.")
+
+    base_version = body.get("version")
+    if base_version is not None:
+        try:
+            base_version = int(base_version)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid version.")
+        if not any(v.get("iteration") == base_version for v in job.versions):
+            raise HTTPException(status_code=404, detail="No such version.")
+
+    manager.submit_edit(job, instruction, base_version=base_version)
+    return JSONResponse({"job": job.summary()}, status_code=202)
+
+
+@app.post("/api/jobs/{job_id}/replay")
+async def replay_job(job_id: str, request: Request) -> JSONResponse:
+    """Replay a recorded run: its own events, against its own artifacts."""
+    source = manager.get(job_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="No such job.")
+    if not manager.can_replay(source):
+        raise HTTPException(
+            status_code=409,
+            detail="That run has no recorded events or geometry to replay.")
+
+    body = await _json_body(request)
+    try:
+        speed = float(body.get("speed", 6.0))
+    except (TypeError, ValueError):
+        speed = 6.0
+    speed = max(0.5, min(40.0, speed))
+
+    job = manager.create_replay(source, speed=speed)
+    return JSONResponse({"job": job.summary()}, status_code=201)
+
+
 @app.get("/api/jobs")
 def list_jobs() -> JSONResponse:
     return JSONResponse({"jobs": manager.list()})

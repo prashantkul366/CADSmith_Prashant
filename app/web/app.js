@@ -26,6 +26,8 @@ const S = {
   designPlan: null,
   converged: false,
   replay: false,
+  seq: 0,          // next unseen event sequence number
+  editing: false,
 };
 
 /* ── the five stages shown while a run is in flight ─────────────────── */
@@ -198,6 +200,9 @@ const PHASE_STAGE = {
 
 function handleEvent(event) {
   const { phase, status, message, data } = event;
+  S.seq = Math.max(S.seq, event.seq + 1);
+
+  if (S.editing) { handleEditEvent(event); return; }
 
   if (phase === "log") { appendLog(message); return; }
 
@@ -247,7 +252,8 @@ function renderIterations() {
   if (!S.versions.length) { $("#iters").innerHTML = ""; return; }
   const cards = S.versions.map((v, i) => {
     const kind = v.source === "edit" ? "edit" : (v.passed ? "pass" : "fail");
-    const label = v.source === "edit" ? `EDIT ${i}` : `ITER ${v.iteration}`;
+    const label = v.source === "edit"
+      ? `EDIT ${v.iteration}` : `ITER ${v.iteration}`;
     const thumb = v.has_render
       ? `<img src="${API.artifact(S.jobId, v.iteration, "render.png")}" alt="" />`
       : "";
@@ -291,8 +297,12 @@ async function selectVersion(index, options) {
   renderValidation(version);
   sheetSvg = null;
   $("#drawBtn").disabled = false;
-  $("#cmdIn").disabled = !S.health || !S.health.can_generate;
-  $("#applyBtn").disabled = $("#cmdIn").disabled;
+  // A parameter patch is rebuilt by the kernel with no model call, so editing
+  // stays available without an API key; the agent path reports its own need.
+  const canRebuild = !!(S.health && S.health.checks
+                        && S.health.checks.cadquery.ok);
+  $("#cmdIn").disabled = !canRebuild;
+  $("#applyBtn").disabled = !canRebuild;
 }
 
 /* ═══════════════════════ panels ═══════════════════════ */
@@ -347,9 +357,31 @@ function renderKernelFacts(version) {
 
 function renderValidation(version) {
   const passed = version.passed;
-  const feedback = version.judge_feedback || version.feedback_text || "";
   const renderUrl = version.has_render
     ? API.artifact(S.jobId, version.iteration, "render.png") : null;
+
+  // A parameter patch is confirmed by the kernel alone - the Judge is not
+  // re-run for it. Saying "accepted by the Judge" there would credit a check
+  // that never happened, so the two cases are worded differently.
+  const judged = version.judge_passed !== null
+                 && version.judge_passed !== undefined;
+
+  let heading, body, attribution;
+  if (judged) {
+    heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
+    body = version.judge_feedback || version.feedback_text || "";
+    attribution = "CLAUDE OPUS · " + (version.has_render
+      ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY");
+  } else {
+    heading = passed ? "Rebuilt and checked by the kernel"
+                     : "The kernel rejected this solid";
+    body = passed
+      ? "OpenCASCADE rebuilt the solid and reports it valid and watertight. "
+        + "The vision Judge was not re-run: a parameter patch changes a value "
+        + "the script already declares, not the design."
+      : (version.feedback_text || "The rebuilt solid failed the kernel's checks.");
+    attribution = "OCCT KERNEL · JUDGE NOT RE-RUN";
+  }
 
   $("#valBody").innerHTML = `
     <div class="verdict ${passed ? "pass" : "fail"}">
@@ -358,10 +390,9 @@ function renderValidation(version) {
                  : '<path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/>'}
       </svg>
       <div>
-        <b>${passed ? "Accepted by the Judge" : "Rejected by the Judge"}</b>
-        <p>${esc(feedback)}</p>
-        <div class="judge-src">CLAUDE OPUS · ${
-          version.has_render ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY"}</div>
+        <b>${esc(heading)}</b>
+        <p>${esc(body)}</p>
+        <div class="judge-src">${esc(attribution)}</div>
       </div>
     </div>
     ${renderUrl ? `
@@ -391,6 +422,7 @@ async function generate() {
   S.designPlan = null;
   S.converged = false;
   S.replay = false;
+  resetPill();
   $("#genBtn").disabled = true;
   $("#iters").innerHTML = "";
   $("#plog").innerHTML = "";
@@ -408,7 +440,8 @@ async function generate() {
   try {
     const job = await API.createJob(prompt, options);
     S.jobId = job.id;
-    follow(job.id);
+    S.seq = 0;
+    follow(job.id, 0);
   } catch (error) {
     S.busy = false;
     $("#genBtn").disabled = false;
@@ -416,9 +449,10 @@ async function generate() {
   }
 }
 
-function follow(jobId) {
+function follow(jobId, fromSeq) {
   if (S.stream) S.stream.close();
   S.stream = API.stream(jobId, {
+    fromSeq: fromSeq || 0,
     onEvent: handleEvent,
     onEnd: () => { S.stream = null; },
     onError: () => {
@@ -479,19 +513,33 @@ async function loadHistory() {
       ? `<span class="hbadge fail">FAILED</span>`
       : job.converged ? `<span class="hbadge pass">CONVERGED</span>`
       : `<span class="hbadge fail">NOT CONVERGED</span>`;
+    // Provenance is stated, never implied: a replay is a recording, and a
+    // fixture had its agent replies scripted rather than generated.
+    const origin =
+      job.source === "replay" ? `<span class="hbadge replay">REPLAY</span>`
+      : job.source === "fixture" ? `<span class="hbadge fixture">FIXTURE</span>`
+      : "";
     return `
-      <button class="hitem" data-job="${esc(job.id)}">
-        <div class="hnote">${esc(job.prompt.slice(0, 92))}${job.prompt.length > 92 ? "…" : ""}</div>
-        <div class="hmeta">
-          ${badge}
-          <span class="hbadge">${job.versions.length} ITER</span>
-          <span class="htime">${esc(when)}</span>
-        </div>
-      </button>`;
+      <div class="hrow">
+        <button class="hitem" data-job="${esc(job.id)}">
+          <div class="hnote">${esc(job.prompt.slice(0, 88))}${job.prompt.length > 88 ? "…" : ""}</div>
+          <div class="hmeta">
+            ${badge}${origin}
+            <span class="hbadge">${job.versions.length} VER</span>
+            <span class="htime">${esc(when)}</span>
+          </div>
+        </button>
+        <button class="hreplay" data-replay="${esc(job.id)}" title="Replay this run">
+          <svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>
+        </button>
+      </div>`;
   }).join("") : `<div class="await" style="padding:14px">No runs yet.</div>`;
 
   $$("#hlist .hitem").forEach(item => {
     item.onclick = () => openJob(item.dataset.job);
+  });
+  $$("#hlist .hreplay").forEach(item => {
+    item.onclick = () => startReplay(item.dataset.replay);
   });
 }
 
@@ -501,6 +549,13 @@ async function openJob(jobId) {
   catch (error) { warnToast(error.message); return; }
 
   const job = state.job;
+  S.replay = job.source === "replay";
+  if (S.replay) {
+    $("#enginePill").textContent = "REPLAY · recorded run";
+    $("#enginePill").classList.add("replaying");
+  } else {
+    resetPill();
+  }
   S.jobId = job.id;
   S.versions = job.versions || [];
   S.selected = -1;
@@ -509,6 +564,7 @@ async function openJob(jobId) {
   S.busy = false;
 
   $("#prompt").value = job.prompt;
+  S.seq = (state.events || []).length;
   $("#plog").innerHTML = "";
   (state.events || [])
     .filter(e => e.phase === "log")
@@ -616,6 +672,166 @@ addEventListener("keydown", e => {
   if (key === "d") $("#drawBtn").click();
 });
 
+
+
+
+/* ═══════════════════════ replay ═══════════════════════ */
+
+/* A replay re-emits the events a real run produced, against the artifacts
+   that run exported. Nothing is simulated; only the pacing differs, so a
+   demo does not depend on the network or on a part converging this time. */
+async function startReplay(sourceJobId) {
+  if (S.busy) { warnToast("Something is already running."); return; }
+
+  S.busy = true;
+  S.replay = true;
+  S.versions = [];
+  S.selected = -1;
+  S.designPlan = null;
+  S.seq = 0;
+  $("#hist").classList.remove("open");
+  $("#iters").innerHTML = "";
+  $("#plog").innerHTML = "";
+  Viewer.clear();
+  setCode("");
+  showOverlay("pipe");
+  renderStages("plan", "Replaying a recorded run");
+  $("#enginePill").textContent = "REPLAY · recorded run";
+  $("#enginePill").classList.add("replaying");
+
+  try {
+    const job = await API.replay(sourceJobId, 6);
+    S.jobId = job.id;
+    follow(job.id, 0);
+  } catch (error) {
+    S.busy = false;
+    S.replay = false;
+    resetPill();
+    failRun(error.message);
+  }
+}
+
+function resetPill() {
+  $("#enginePill").textContent = "Planner · Coder · Executor · Validator · Refiner";
+  $("#enginePill").classList.remove("replaying");
+}
+
+/* ═══════════════════════ natural-language edits ═══════════════════════ */
+
+/* The steps mirror what actually happens. A parameter patch skips the Judge:
+   it changes a number the script already declares, so the kernel alone can
+   confirm it. The Refiner writes new code, so the full check is worth it. */
+const EDIT_STEPS = [
+  { key: "read",     label: "Reading the request" },
+  { key: "apply",    label: "Applying the change" },
+  { key: "rebuild",  label: "Rebuilding in the kernel" },
+  { key: "validate", label: "Validating" },
+  { key: "done",     label: "Updated" },
+];
+
+function renderEditSteps(activeKey, skipValidate) {
+  const steps = skipValidate
+    ? EDIT_STEPS.filter(s => s.key !== "validate") : EDIT_STEPS;
+  const activeIndex = steps.findIndex(s => s.key === activeKey);
+  $("#actSteps").innerHTML = steps.map((step, i) => {
+    const state = i < activeIndex ? "done" : (i === activeIndex ? "act" : "");
+    return `<div class="ast ${state}"><i></i>${step.label}</div>`
+      + (i < steps.length - 1 ? `<span class="arrow">→</span>` : "");
+  }).join("");
+}
+
+function handleEditEvent(event) {
+  const { phase, status, message, data } = event;
+
+  if (phase === "edit") {
+    S.editMethod = data.method;
+    S.editSkipValidate = data.method === "parameter patch";
+    renderEditSteps("apply", S.editSkipValidate);
+    if (data.changes && data.changes.length) {
+      $("#actDiff").innerHTML = data.changes.map(c =>
+        `<span class="diffpill">${esc(c.name.replace(/_/g, " "))}
+           <span class="strike">${fmt(c.old)}</span>${fmt(c.new)}</span>`).join("");
+    } else {
+      $("#actDiff").innerHTML =
+        `<span class="diffpill">REFINER AGENT</span>`;
+    }
+    return;
+  }
+
+  if (phase === "refine" && status === "started") {
+    renderEditSteps("apply", false);
+  }
+  if (phase === "execute") {
+    renderEditSteps("rebuild", S.editSkipValidate);
+  }
+  if (phase === "judge") {
+    renderEditSteps("validate", false);
+  }
+  if (phase === "version" && status === "ok") {
+    addVersion(data);
+  }
+  if ((phase === "code" || phase === "refine" || phase === "error_fix")
+      && status === "ok") {
+    setCode(data.code);
+  }
+  if (phase === "job" && status === "ok") {
+    renderEditSteps("done", S.editSkipValidate);
+    setTimeout(() => { $("#act").hidden = true; }, 900);
+    finishEdit(true, data);
+  }
+  if (phase === "job" && status === "failed") {
+    $("#act").hidden = true;
+    finishEdit(false, data, message);
+  }
+}
+
+function finishEdit(ok, data, message) {
+  S.editing = false;
+  S.busy = false;
+  $("#applyBtn").disabled = false;
+  $("#cmdIn").disabled = false;
+
+  if (!ok) {
+    warnToast(message || "The edit could not be applied.");
+    return;
+  }
+  $("#cmdIn").value = "";
+  const method = data.method === "parameter patch"
+    ? "parameter patch, rebuilt by the kernel"
+    : "Refiner agent";
+  const seconds = data.total_ms ? ` in ${(data.total_ms / 1000).toFixed(1)}s` : "";
+  toast(`Model updated · ${method}${seconds}`);
+}
+
+async function applyEdit() {
+  const instruction = $("#cmdIn").value.trim();
+  if (!instruction) { warnToast("Describe the change first."); return; }
+  if (S.busy || !S.jobId || !S.versions.length) return;
+
+  S.busy = true;
+  S.editing = true;
+  S.editSkipValidate = false;
+  $("#applyBtn").disabled = true;
+  $("#cmdIn").disabled = true;
+  $("#actDiff").innerHTML = "";
+  $("#act").hidden = false;
+  renderEditSteps("read", false);
+
+  try {
+    // Edit the version on screen, which is not always the newest one.
+    const base = S.versions[S.selected];
+    await API.edit(S.jobId, instruction, base ? base.iteration : undefined);
+    follow(S.jobId, S.seq);
+  } catch (error) {
+    $("#act").hidden = true;
+    finishEdit(false, {}, error.message);
+  }
+}
+
+$("#applyBtn").onclick = applyEdit;
+$("#cmdIn").addEventListener("keydown", e => {
+  if (e.key === "Enter") applyEdit();
+});
 
 /* ═══════════════════════ drawing sheet ═══════════════════════ */
 

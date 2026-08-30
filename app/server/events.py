@@ -33,6 +33,7 @@ PHASE_ITERATION = "iteration"  # Outer-loop boundary
 PHASE_VERSION = "version"    # A new artifact bundle is available to the client
 PHASE_JOB = "job"            # Job lifecycle: queued / running / done / failed
 PHASE_LOG = "log"            # Raw console line from the pipeline itself
+PHASE_EDIT = "edit"          # Natural-language edit: which path was taken
 
 STATUS_STARTED = "started"
 STATUS_OK = "ok"
@@ -115,8 +116,15 @@ class EventSink:
             self._closed = True
 
     @classmethod
-    def from_file(cls, path: Path) -> "EventSink":
-        """Rebuild a sink from a persisted log (used by replay mode)."""
+    def from_file(cls, path: Path, keep_appending: bool = False) -> "EventSink":
+        """Rebuild a sink from a persisted log.
+
+        ``keep_appending`` reopens the log for writing, so a finished run
+        restored after a restart can still record later activity - an edit
+        applied to it, say - instead of losing those events.  The constructor
+        is deliberately bypassed: it truncates, which would erase the history
+        being loaded.
+        """
         sink = cls(path=None)
         if path.exists():
             for line in path.read_text().splitlines():
@@ -127,5 +135,9 @@ class EventSink:
                 except json.JSONDecodeError:
                     continue
                 sink._events.append(Event(**raw))
-        sink._closed = True
+        if keep_appending:
+            sink.path = path
+            sink._closed = False
+        else:
+            sink._closed = True
         return sink

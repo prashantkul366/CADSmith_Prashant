@@ -1,0 +1,10 @@
+# Everything needed to run the app's test suite.
+
+-r requirements-app.txt
+
+# In-process HTTP client used by fastapi.testclient
+httpx
+
+# Drives a real browser for app/tests/ui_check.py.  A Chromium already on the
+# machine is preferred; see _CANDIDATE_BROWSERS in that file.
+playwright

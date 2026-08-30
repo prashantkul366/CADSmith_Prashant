@@ -100,7 +100,7 @@ def main() -> int:
         # The two-iteration bracket run is the interesting one.
         target = None
         for i in range(runs.count()):
-            if "2 ITER" in runs.nth(i).inner_text():
+            if "2 VER" in runs.nth(i).inner_text():
                 target = runs.nth(i)
                 break
         check("a multi-iteration run exists", target is not None)
@@ -156,6 +156,45 @@ def main() -> int:
         check("first attempt shows the rejection",
               "Rejected by the Judge" in rejected)
         page.screenshot(path=str(out / "05-rejected-iteration.png"))
+
+        print("\nNatural-language edit (parameter patch, no API key needed)")
+        # An edit applies to the version on screen, so select one explicitly
+        # rather than relying on whichever was left selected.
+        page.click('.iter[data-i="0"]')
+        page.wait_for_timeout(2200)
+        # Length is unambiguous: in this attempt the walls stand 45mm from
+        # z=0, so thickening the base would not change the overall height.
+        before = page.evaluate("Viewer.extents.x")
+        page.fill("#cmdIn", "make the base length 140mm")
+        page.click("#applyBtn")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#iters .iter').length === 3",
+            timeout=120000)
+        page.wait_for_timeout(2500)
+        check("an edit version appears",
+              page.locator("#iters .iter").count() == 3)
+        labels = page.evaluate(
+            "[...document.querySelectorAll('#iters .iter .ilabel')].map(e => e.textContent.trim())")
+        check("it is labelled as an edit",
+              any("EDIT" in l for l in labels), str(labels))
+        after = page.evaluate("Viewer.extents.x")
+        check("the kernel rebuilt it at the new length",
+              abs(before - 100.0) < 0.5 and abs(after - 140.0) < 0.5,
+              f"{round(before, 1)}mm -> {round(after, 1)}mm")
+        code_now = page.locator("#hl").inner_text()
+        check("the patched source is shown",
+              "base_length = 140.0" in code_now,
+              next((l for l in code_now.splitlines()
+                    if "base_length" in l), ""))
+        check("the edit was applied to the selected attempt, not the newest",
+              "support_height + base_thickness" not in code_now)
+        verdict_now = page.locator("#valBody").inner_text()
+        check("a patch is not credited to the Judge",
+              "Judge" not in verdict_now.split("\n")[0],
+              verdict_now.split("\n")[0])
+        check("it says the Judge was not re-run",
+              "JUDGE NOT RE-RUN" in verdict_now)
+        page.screenshot(path=str(out / "09-edited.png"))
 
         print("\nEngineering drawing")
         page.click('.iter[data-i="1"]')

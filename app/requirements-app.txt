@@ -1,0 +1,24 @@
+# Dependencies for the CADSmith web application.
+#
+# Installs the research pipeline's own requirements first, then what the app
+# adds on top.  The pipeline's requirements.txt is left untouched.
+
+-r ../requirements.txt
+
+# Imported by autofab/metrics.py (KDTree) but missing from requirements.txt,
+# so a fresh install from that file alone cannot compute CD/F1/IoU.
+scipy
+
+# Three-view rendering for the vision Judge.  autofab/render.py imports vtk
+# directly; requirements.txt does not list it.
+#
+# On headless Linux the wheel imports fine and then fails at render time with
+# no GL backend.  Install a software rasteriser as well:
+#   Debian/Ubuntu:  sudo apt-get install libosmesa6
+# macOS and Windows need nothing extra.  The app's health endpoint reports
+# whether offscreen rendering actually works.
+vtk
+
+# Web server
+fastapi
+uvicorn[standard]

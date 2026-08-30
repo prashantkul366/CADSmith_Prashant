@@ -33,11 +33,11 @@ const API = (() => {
       }).then(d => d.job);
     },
 
-    edit(jobId, instruction) {
+    edit(jobId, instruction, version) {
       return json(`/api/jobs/${encodeURIComponent(jobId)}/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, version }),
       });
     },
 
@@ -56,9 +56,11 @@ const API = (() => {
     /* Follow a job's event stream.
        EventSource replays from the beginning and, on a dropped connection,
        resumes from the last id it saw — so a reload mid-run loses nothing. */
-    stream(jobId, { onEvent, onEnd, onError }) {
+    stream(jobId, { onEvent, onEnd, onError, fromSeq }) {
+      // fromSeq skips events already applied, so following a job again after
+      // an edit does not replay the original run.
       const source = new EventSource(
-        `/api/jobs/${encodeURIComponent(jobId)}/events`);
+        `/api/jobs/${encodeURIComponent(jobId)}/events?from_seq=${fromSeq || 0}`);
 
       source.onmessage = e => {
         let payload;

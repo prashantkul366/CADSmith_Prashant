@@ -78,6 +78,11 @@ class RunContext:
     #: API error silently converge a part.  The app surfaces it instead.
     judge_error: Optional[str] = None
     versions: list[dict] = field(default_factory=list)
+    #: Provenance stamped onto the next published version.
+    source: str = "pipeline"
+    method: str = ""
+    instruction: str = ""
+    changes: list[dict] = field(default_factory=list)
 
     def version_dir(self, iteration: Optional[int] = None) -> Path:
         d = self.job_dir / f"v{self.iteration if iteration is None else iteration}"
@@ -379,7 +384,10 @@ class InstrumentedValidator(Validator):
             "feedback_text": report.feedback_text,
             "geometry": geometry,
             "has_render": (vdir / "render.png").exists(),
-            "source": "pipeline",
+            "source": ctx.source,
+            "method": ctx.method,
+            "instruction": ctx.instruction,
+            "changes": list(ctx.changes),
         }
         ctx.versions.append(version)
         ctx.emit(PHASE_VERSION, STATUS_OK, **version)
