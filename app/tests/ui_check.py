@@ -17,6 +17,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 DEFAULT_URL = "http://127.0.0.1:8077"
 
 # Prefer a Chromium already on the machine over one Playwright would fetch;
@@ -42,6 +44,15 @@ def main() -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Record a fresh two-iteration run and drive the test against that exact
+    # job. Reusing whatever happens to be in app/runs made the test depend on
+    # earlier runs of itself, which had already added an edit version.
+    print("\nRecording a run to test against")
+    from app.server.jobs import JobManager
+    from app.tools.seed_demo_run import RUNS_DIR, seed
+
+    job_id = seed("bracket", JobManager(RUNS_DIR))
 
     failures: list[str] = []
     console_errors: list[str] = []
@@ -92,19 +103,14 @@ def main() -> int:
 
         print("\nRecorded run")
         page.click("#histBtn")
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(900)
         runs = page.locator("#hlist .hitem")
         check("history lists runs", runs.count() > 0, f"{runs.count()} runs")
         page.screenshot(path=str(out / "03-history.png"))
 
-        # The two-iteration bracket run is the interesting one.
-        target = None
-        for i in range(runs.count()):
-            if "2 VER" in runs.nth(i).inner_text():
-                target = runs.nth(i)
-                break
-        check("a multi-iteration run exists", target is not None)
-        (target or runs.first).click()
+        target = page.locator(f'#hlist .hitem[data-job="{job_id}"]')
+        check("the run just recorded is listed", target.count() == 1, job_id)
+        target.click()
         page.wait_for_timeout(3000)
 
         print("\nLoaded model")
@@ -169,7 +175,7 @@ def main() -> int:
         page.click("#applyBtn")
         page.wait_for_function(
             "() => document.querySelectorAll('#iters .iter').length === 3",
-            timeout=120000)
+            timeout=180000)
         page.wait_for_timeout(2500)
         check("an edit version appears",
               page.locator("#iters .iter").count() == 3)
@@ -217,6 +223,45 @@ def main() -> int:
         page.screenshot(path=str(out / "08-drawing.png"))
         page.click("#back3d")
         page.wait_for_timeout(400)
+
+        print("\nReplay")
+        page.click("#histBtn")
+        page.wait_for_timeout(600)
+        replay_buttons = page.locator("#hlist .hreplay")
+        rows = page.locator("#hlist .hrow")
+        check("every run offers a replay",
+              rows.count() > 0 and replay_buttons.count() == rows.count(),
+              f"{replay_buttons.count()} buttons for {rows.count()} runs")
+        # Replay the two-iteration run: the last row is the oldest.
+        row = page.locator(f'#hlist .hrow:has(.hitem[data-job="{job_id}"])')
+        check("the recorded run can be replayed", row.count() == 1)
+        row.locator(".hreplay").click()
+        page.wait_for_timeout(1200)
+        check("the header marks it as a replay",
+              "REPLAY" in page.locator("#enginePill").inner_text(),
+              page.locator("#enginePill").inner_text())
+        page.screenshot(path=str(out / "10-replaying.png"))
+
+        # The run has three versions by now: two iterations plus the edit.
+        page.wait_for_function(
+            "() => document.querySelectorAll('#iters .iter').length === 3",
+            timeout=180000)
+        page.wait_for_timeout(2500)
+        check("the replay reproduced every version",
+              page.locator("#iters .iter").count() == 3)
+        page.click('.iter[data-i="1"]')
+        page.wait_for_timeout(2200)
+        replay_extents = page.evaluate(
+            "Viewer.extents ? [Viewer.extents.x, Viewer.extents.z] : null")
+        check("replayed geometry matches the original",
+              replay_extents is not None
+              and abs(replay_extents[0] - 100) < 0.5
+              and abs(replay_extents[1] - 55) < 0.5,
+              str([round(v, 1) for v in replay_extents] if replay_extents else None))
+        replay_verdict = page.locator("#valBody").inner_text()
+        check("the original Judge text is replayed",
+              "Accepted by the Judge" in replay_verdict)
+        page.screenshot(path=str(out / "11-replay-done.png"))
 
         print("\nViews")
         page.click('.vt[data-view="front"]')

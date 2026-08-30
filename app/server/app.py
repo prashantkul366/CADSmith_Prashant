@@ -307,6 +307,10 @@ async def replay_job(job_id: str, request: Request) -> JSONResponse:
 
 @app.get("/api/jobs")
 def list_jobs() -> JSONResponse:
+    # Pick up runs recorded on disk since startup - seeding demo runs while
+    # the server is up should not require restarting it. Already-registered
+    # runs are skipped, so this is cheap.
+    manager.load_from_disk()
     return JSONResponse({"jobs": manager.list()})
 
 
