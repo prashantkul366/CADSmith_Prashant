@@ -1,0 +1,1914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Text2CAD — AI-Powered Parametric CAD Generation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{
+  --void:#0B0E13;
+  --panel:#12161D;
+  --panel-2:#171C25;
+  --raise:#1D2430;
+  --line:#232A35;
+  --line-soft:#1A202A;
+  --ink:#E4E9F0;
+  --ink-2:#A7B2C2;
+  --ink-dim:#6E7A8B;
+  --accent:#4D8DF6;
+  --accent-dim:#2C5FAE;
+  --valid:#3DD68C;
+  --warn:#F0A93B;
+  --err:#F2606A;
+  --steel:#A8B4C4;
+
+  --ui:"Segoe UI Variable Display","Segoe UI",-apple-system,system-ui,Roboto,sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"SF Mono",ui-monospace,monospace;
+
+  --r:5px;
+  --hdr:52px;
+  --cmd:78px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--void);color:var(--ink);font-family:var(--ui);
+  font-size:13px;line-height:1.45;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:none;cursor:pointer}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#252D3A;border-radius:6px;border:2px solid var(--panel)}
+::-webkit-scrollbar-thumb:hover{background:#333D4D}
+
+/* ---------- shared atoms ---------- */
+.eyebrow{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-dim);font-weight:600;
+}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;justify-content:center;
+  border:1px solid var(--line);background:var(--panel-2);border-radius:var(--r);
+  padding:6px 11px;font-size:12px;color:var(--ink-2);
+  transition:background .13s,border-color .13s,color .13s;white-space:nowrap;
+}
+.btn:hover{background:var(--raise);border-color:#2E3746;color:var(--ink)}
+.btn:active{transform:translateY(.5px)}
+.btn.primary{
+  background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;
+  box-shadow:0 1px 0 rgba(255,255,255,.14) inset,0 2px 10px rgba(77,141,246,.24);
+}
+.btn.primary:hover{background:#5B98F8;border-color:#5B98F8;color:#fff}
+.btn.primary:disabled{background:#20293A;border-color:var(--line);color:var(--ink-dim);box-shadow:none;cursor:default}
+.btn.ghost{background:transparent}
+.btn.sm{padding:4px 8px;font-size:11px}
+.icn{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.chip{
+  border:1px solid var(--line);background:transparent;border-radius:100px;
+  padding:4px 10px;font-size:11px;color:var(--ink-dim);text-align:left;
+  transition:.13s;line-height:1.3;
+}
+.chip:hover{border-color:var(--accent-dim);color:var(--accent);background:rgba(77,141,246,.07)}
+
+/* ---------- header ---------- */
+header{
+  height:var(--hdr);display:flex;align-items:center;gap:14px;padding:0 14px;
+  border-bottom:1px solid var(--line);background:var(--panel);position:relative;z-index:40;
+}
+.brand{display:flex;align-items:center;gap:9px}
+.mark{
+  width:26px;height:26px;border-radius:6px;flex:none;
+  background:linear-gradient(150deg,#3C7BE0,#1E4A94);
+  display:grid;place-items:center;box-shadow:0 2px 8px rgba(60,123,224,.3);
+}
+.mark svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:1.7;stroke-linejoin:round}
+.brand h1{font-size:14.5px;font-weight:650;letter-spacing:-.15px;line-height:1.1}
+.brand p{font-size:10.5px;color:var(--ink-dim);letter-spacing:.01em}
+.hsep{width:1px;height:22px;background:var(--line)}
+.pill{
+  display:flex;align-items:center;gap:6px;border:1px solid var(--line);
+  background:var(--panel-2);border-radius:100px;padding:4px 10px 4px 8px;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-2);letter-spacing:.02em;
+}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--valid);flex:none;box-shadow:0 0 0 3px rgba(61,214,140,.15)}
+.dot.live{animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.42}}
+.spacer{flex:1}
+.yam{
+  display:flex;align-items:center;gap:7px;padding-left:14px;border-left:1px solid var(--line);
+}
+.yam-mark{width:22px;height:22px;border-radius:50%;border:1.5px solid #5A6473;display:grid;place-items:center}
+.yam-mark svg{width:12px;height:12px;stroke:#8C97A6;fill:none;stroke-width:1.6}
+.yam span{font-size:9.5px;color:var(--ink-dim);line-height:1.25;letter-spacing:.02em}
+.yam b{display:block;color:var(--ink-2);font-size:10.5px;font-weight:600;letter-spacing:.04em}
+
+/* ---------- layout ---------- */
+.shell{height:calc(100vh - var(--hdr));display:flex;flex-direction:column}
+.work{flex:1;display:grid;grid-template-columns:296px 1fr 384px;min-height:0}
+.col{display:flex;flex-direction:column;min-height:0;min-width:0}
+.col.left{border-right:1px solid var(--line);background:var(--panel)}
+.col.right{border-left:1px solid var(--line);background:var(--panel)}
+.phead{
+  height:36px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px;
+  border-bottom:1px solid var(--line-soft);
+}
+.phead h2{font-size:11.5px;font-weight:650;letter-spacing:.02em}
+.pbody{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px}
+
+/* ---------- left ---------- */
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--void);
+  border:1px solid var(--line);border-radius:var(--r);padding:2px;margin-bottom:14px}
+.tab{padding:5px 4px;border-radius:3px;font-size:11px;color:var(--ink-dim);text-align:center;transition:.13s}
+.tab:hover{color:var(--ink-2)}
+.tab[aria-selected="true"]{background:var(--raise);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.field{margin-bottom:14px}
+.field>.eyebrow{display:block;margin-bottom:7px}
+
+.drop{
+  border:1px dashed #2C3543;border-radius:var(--r);background:var(--panel-2);
+  padding:16px 12px;text-align:center;cursor:pointer;transition:.15s;
+}
+.drop:hover,.drop.over{border-color:var(--accent);background:rgba(77,141,246,.055)}
+.drop-art{width:100%;height:74px;margin-bottom:9px;opacity:.5}
+.drop b{display:block;font-size:12px;font-weight:600;margin-bottom:2px}
+.drop small{font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);letter-spacing:.05em}
+
+.thumb{display:flex;gap:9px;align-items:center;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--panel-2);padding:8px}
+.thumb-img{width:48px;height:40px;border-radius:3px;background:#fff;flex:none;overflow:hidden;
+  display:grid;place-items:center}
+.thumb-img svg,.thumb-img img{width:100%;height:100%;object-fit:contain}
+.thumb-meta{flex:1;min-width:0}
+.thumb-meta b{display:block;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb-meta span{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9.5px;color:var(--valid);letter-spacing:.03em}
+.x{width:22px;height:22px;border-radius:3px;display:grid;place-items:center;color:var(--ink-dim);flex:none}
+.x:hover{background:var(--raise);color:var(--err)}
+
+textarea.prompt{
+  width:100%;min-height:96px;resize:vertical;background:var(--panel-2);color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;
+  font-family:var(--ui);font-size:12.5px;line-height:1.5;outline:none;transition:border-color .14s,box-shadow .14s;
+}
+textarea.prompt:focus{border-color:var(--accent-dim);box-shadow:0 0 0 3px rgba(77,141,246,.1)}
+textarea.prompt::placeholder{color:#535E6E}
+.chips{display:flex;flex-direction:column;gap:5px;margin-top:9px}
+
+.samples{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sample{
+  border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);
+  padding:8px;text-align:left;transition:.13s;
+}
+.sample:hover{border-color:var(--accent-dim);background:rgba(77,141,246,.06)}
+.sample svg{width:100%;height:34px;stroke:var(--ink-dim);fill:none;stroke-width:1.2;margin-bottom:5px;transition:stroke .13s}
+.sample:hover svg{stroke:var(--accent)}
+.sample b{display:block;font-size:11px;font-weight:600;margin-bottom:1px}
+.sample small{font-family:var(--mono);font-size:9px;color:var(--ink-dim);letter-spacing:.02em}
+
+/* ---------- viewport ---------- */
+.col.center{background:var(--void);position:relative}
+.vtools{
+  height:36px;flex:none;display:flex;align-items:center;gap:3px;padding:0 8px;
+  border-bottom:1px solid var(--line-soft);background:var(--panel);
+}
+.vt{
+  padding:4px 8px;border-radius:3px;font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+  color:var(--ink-dim);transition:.12s;display:inline-flex;align-items:center;gap:5px;
+}
+.vt:hover{background:var(--raise);color:var(--ink)}
+.vt.on{background:rgba(77,141,246,.16);color:var(--accent)}
+.vsep{width:1px;height:16px;background:var(--line);margin:0 4px}
+.stage{flex:1;position:relative;min-height:0}
+#gl{position:absolute;inset:0}
+#gl canvas{display:block}
+
+.axes{position:absolute;left:14px;bottom:14px;width:58px;height:58px;pointer-events:none;opacity:.85}
+.scalebar{
+  position:absolute;right:14px;bottom:16px;pointer-events:none;
+  font-family:var(--mono);font-size:9px;color:var(--ink-dim);letter-spacing:.06em;text-align:center;
+}
+.scalebar i{display:block;height:5px;border:1px solid #3A4453;border-top:none;margin-bottom:3px;width:74px}
+
+/* overlays */
+.ov{position:absolute;inset:0;display:grid;place-items:center;padding:24px;
+  background:radial-gradient(circle at 50% 45%,#0F131A 0%,#0B0E13 72%);z-index:10}
+.ov[hidden]{display:none}
+
+.empty{text-align:center;max-width:290px}
+.empty-art{width:118px;height:118px;margin:0 auto 16px;opacity:.9}
+.empty h3{font-size:16px;font-weight:650;margin-bottom:5px;letter-spacing:-.2px}
+.empty p{color:var(--ink-dim);font-size:12px;margin-bottom:17px;line-height:1.55}
+.empty .row{display:flex;gap:7px;justify-content:center}
+
+/* pipeline */
+.pipe{width:250px}
+.pstep{display:flex;align-items:center;gap:10px;padding:6px 0;opacity:.3;transition:opacity .3s}
+.pstep.act,.pstep.done{opacity:1}
+.pbullet{width:17px;height:17px;border-radius:50%;border:1.5px solid #333D4C;flex:none;
+  display:grid;place-items:center;transition:.25s}
+.pstep.act .pbullet{border-color:var(--accent);box-shadow:0 0 0 4px rgba(77,141,246,.13)}
+.pstep.done .pbullet{border-color:var(--valid);background:var(--valid)}
+.pbullet svg{width:9px;height:9px;stroke:#0B0E13;fill:none;stroke-width:2.6;opacity:0}
+.pstep.done .pbullet svg{opacity:1}
+.pspin{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:0;transition:.2s}
+.pstep.act .pspin{opacity:1;animation:breathe 1s ease-in-out infinite}
+.pstep.done .pspin{display:none}
+.plabel{font-size:12px;color:var(--ink-dim);transition:color .25s}
+.pstep.act .plabel{color:var(--ink);font-weight:600}
+.pstep.done .plabel{color:var(--ink-2)}
+.pline{width:1.5px;height:11px;background:var(--line);margin-left:8px}
+.pstep.done+.pline{background:var(--valid);opacity:.5}
+
+/* error */
+.errbox{max-width:340px;border:1px solid #4A2830;background:#171214;border-radius:6px;padding:16px}
+.errbox h3{font-size:13.5px;font-weight:650;color:var(--err);margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.errbox p{font-size:12px;color:var(--ink-2);line-height:1.55;margin-bottom:8px}
+.errbox .quote{border-left:2px solid var(--err);padding-left:10px;font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-bottom:13px}
+
+/* model info */
+.minfo{
+  position:absolute;left:0;right:0;bottom:0;z-index:12;
+  display:flex;align-items:center;gap:14px;padding:8px 14px;
+  border-top:1px solid var(--line-soft);
+  background:linear-gradient(transparent,rgba(11,14,19,.93) 34%);
+  backdrop-filter:blur(3px);
+}
+.minfo[hidden]{display:none}
+.mstat{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600}
+.mfacts{display:flex;gap:0;margin-left:auto}
+.fact{padding:0 11px;border-left:1px solid var(--line);text-align:right}
+.fact:first-child{border-left:none}
+.fact b{display:block;font-family:var(--mono);font-size:12.5px;font-weight:600;line-height:1.2;font-variant-numeric:tabular-nums}
+.fact span{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--ink-dim);text-transform:uppercase}
+.badge{
+  display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(61,214,140,.3);
+  background:rgba(61,214,140,.09);color:var(--valid);border-radius:100px;
+  padding:2.5px 9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;font-weight:600;
+}
+
+/* ---------- right ---------- */
+.rsplit{display:flex;flex-direction:column;height:100%;min-height:0}
+.rsec{display:flex;flex-direction:column;min-height:0}
+.rsec.ai{flex:0 0 auto;max-height:44%;border-bottom:1px solid var(--line)}
+.rsec.code{flex:1;min-height:0}
+.ai-body{overflow-y:auto;padding:11px 12px}
+
+.await{color:var(--ink-dim);font-size:11.5px;padding:10px 0;display:flex;align-items:center;gap:8px}
+.feat{display:flex;align-items:center;gap:8px;padding:3.5px 0;font-size:12px;
+  opacity:0;transform:translateX(-5px);animation:fin .3s forwards}
+@keyframes fin{to{opacity:1;transform:none}}
+.feat svg{width:12px;height:12px;stroke:var(--valid);fill:none;stroke-width:2.4;flex:none}
+.dims{margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
+.dim{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3.5px 0;
+  font-family:var(--mono);font-size:11.5px;border-radius:3px;transition:background .3s}
+.dim span{color:var(--ink-dim)}
+.dim b{font-weight:600;font-variant-numeric:tabular-nums}
+.dim.pulse{background:rgba(77,141,246,.15);box-shadow:0 0 0 4px rgba(77,141,246,.15)}
+.dim.pulse b{color:var(--accent)}
+.strike{color:var(--ink-dim);text-decoration:line-through;font-weight:400;margin-right:5px}
+
+/* code */
+.codewrap{flex:1;position:relative;min-height:0;background:var(--void);overflow:hidden}
+.code-scroll{position:absolute;inset:0;overflow:auto}
+.code-inner{position:relative;min-height:100%;min-width:100%}
+pre.hl,textarea.src{
+  margin:0;padding:11px 13px 22px;font-family:var(--mono);font-size:11.5px;line-height:1.62;
+  white-space:pre;tab-size:4;border:none;
+}
+pre.hl{color:var(--ink-2);pointer-events:none}
+textarea.src{
+  position:absolute;inset:0;width:100%;height:100%;background:transparent;
+  color:transparent;caret-color:var(--accent);resize:none;outline:none;overflow:hidden;
+}
+.k{color:#C792EA}.s{color:#C3E88D}.c{color:#546177;font-style:italic}
+.n{color:#F78C6C}.f{color:#82AAFF}.o{color:#89DDFF}.v{color:#E4E9F0}
+.hot{background:rgba(77,141,246,.22);border-radius:2px;box-shadow:0 0 0 2px rgba(77,141,246,.22)}
+.coderow{display:flex;align-items:center;gap:5px;padding:7px 10px;border-top:1px solid var(--line-soft);flex:none}
+
+/* ---------- command bar ---------- */
+.cmd{
+  height:var(--cmd);flex:none;border-top:1px solid var(--line);background:var(--panel);
+  display:flex;align-items:center;gap:11px;padding:0 14px;position:relative;z-index:30;
+}
+.cmd-in{
+  flex:1;display:flex;align-items:center;gap:9px;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:7px;padding:8px 8px 8px 12px;transition:.15s;
+}
+.cmd-in:focus-within{border-color:var(--accent-dim);box-shadow:0 0 0 3px rgba(77,141,246,.1);background:var(--raise)}
+.cmd-in .icn{color:var(--accent);width:15px;height:15px}
+.cmd-in input{
+  flex:1;background:none;border:none;outline:none;color:var(--ink);
+  font-family:var(--ui);font-size:13px;min-width:0;
+}
+.cmd-in input::placeholder{color:#535E6E}
+.mic{width:28px;height:28px;border-radius:5px;display:grid;place-items:center;color:var(--ink-dim);flex:none}
+.mic:hover{background:#242D3B;color:var(--accent)}
+.cmd-chips{display:flex;gap:5px;flex-wrap:wrap;max-width:330px}
+.cmd-side{display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.cmd-side .eyebrow{font-size:8.5px}
+
+/* activity */
+.act{
+  position:absolute;left:14px;right:14px;bottom:calc(100% + 9px);
+  background:var(--raise);border:1px solid #2C3543;border-radius:7px;padding:11px 13px;
+  box-shadow:0 -8px 30px rgba(0,0,0,.5);display:flex;align-items:center;gap:12px;
+}
+.act[hidden]{display:none}
+.act-steps{display:flex;align-items:center;gap:9px;flex:1;flex-wrap:wrap}
+.ast{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#4A5768;transition:color .25s}
+.ast.act{color:var(--accent);font-weight:600}
+.ast.done{color:var(--ink-2)}
+.ast i{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.ast.act i{animation:breathe .85s ease-in-out infinite}
+.arrow{color:#333D4C;font-size:10px}
+.diffpill{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--accent-dim);
+  background:rgba(77,141,246,.12);border-radius:100px;padding:3px 11px;
+  font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;
+}
+
+/* ---------- history ---------- */
+.hist{
+  position:fixed;top:var(--hdr);right:0;bottom:0;width:290px;background:var(--panel);
+  border-left:1px solid var(--line);z-index:50;transform:translateX(100%);
+  transition:transform .26s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;
+  box-shadow:-14px 0 40px rgba(0,0,0,.45);
+}
+.hist.open{transform:none}
+.hlist{flex:1;overflow-y:auto;padding:10px}
+.ver{
+  display:flex;gap:10px;padding:9px;border:1px solid transparent;border-radius:var(--r);
+  cursor:pointer;transition:.13s;text-align:left;width:100%;
+}
+.ver:hover{background:var(--panel-2);border-color:var(--line)}
+.ver.cur{background:rgba(77,141,246,.09);border-color:var(--accent-dim)}
+.vnum{
+  width:23px;height:23px;border-radius:4px;background:var(--raise);flex:none;
+  display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--ink-dim);
+}
+.ver.cur .vnum{background:var(--accent);color:#fff}
+.vmeta{flex:1;min-width:0}
+.vmeta b{display:block;font-size:11.5px;font-weight:600;margin-bottom:1px}
+.vmeta span{font-size:10.5px;color:var(--ink-dim);display:block;line-height:1.4}
+.vtime{font-family:var(--mono);font-size:9px;color:#4A5768;margin-top:3px;letter-spacing:.04em}
+
+/* ---------- drawing sheet ---------- */
+.sheet{
+  position:fixed;inset:var(--hdr) 0 0 0;background:#3A3F46;z-index:60;
+  display:none;flex-direction:column;
+}
+.sheet.on{display:flex}
+.sheet-bar{
+  height:40px;flex:none;display:flex;align-items:center;gap:7px;padding:0 12px;
+  background:var(--panel);border-bottom:1px solid var(--line);
+}
+.sheet-scroll{flex:1;overflow:auto;display:grid;place-items:center;padding:20px}
+.paper{background:#fff;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+
+/* ---------- misc ---------- */
+.toast{
+  position:fixed;left:50%;bottom:calc(var(--cmd) + 18px);transform:translate(-50%,10px);
+  background:var(--raise);border:1px solid #2C3543;border-radius:6px;padding:8px 15px;
+  font-size:12px;z-index:90;opacity:0;transition:.22s;pointer-events:none;
+  box-shadow:0 6px 24px rgba(0,0,0,.5);display:flex;align-items:center;gap:8px;
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.autopilot{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--accent-dim);
+  background:rgba(77,141,246,.1);color:var(--accent);border-radius:100px;
+  padding:5px 13px 5px 10px;font-size:11.5px;font-weight:600;transition:.14s;
+}
+.autopilot:hover{background:rgba(77,141,246,.2)}
+.autopilot.running{border-color:var(--warn);color:var(--warn);background:rgba(240,169,59,.1)}
+.caret{display:inline-block;width:1.5px;height:14px;background:var(--accent);
+  vertical-align:-2px;animation:blink .75s steps(2) infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="mark"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg></div>
+    <div><h1>Text2CAD</h1><p>AI-Powered Parametric CAD Generation</p></div>
+  </div>
+  <div class="hsep"></div>
+  <div class="pill"><i class="dot live"></i>AI READY</div>
+  <div class="pill" id="enginePill">Text2CAD Engine v0.1</div>
+  <button class="autopilot" id="autoBtn">
+    <svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>
+    Run demo
+  </button>
+  <div class="spacer"></div>
+  <button class="btn ghost sm" id="histBtn">
+    <svg class="icn" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+    Design history
+  </button>
+  <button class="btn ghost sm" id="setBtn" title="Settings">
+    <svg class="icn" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+  <div class="yam">
+    <div class="yam-mark"><svg viewBox="0 0 24 24"><path d="M12 4 4 18h16z"/><path d="M12 10 8 18h8z"/></svg></div>
+    <span><b>YAMAHA</b>Motor Solutions India</span>
+  </div>
+</header>
+
+<div class="shell">
+<div class="work">
+
+  <!-- ============ LEFT ============ -->
+  <div class="col left">
+    <div class="phead"><h2>Design Input</h2></div>
+    <div class="pbody">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-mode="drawing">Drawing</button>
+        <button class="tab" role="tab" data-mode="prompt" aria-selected="true">Prompt</button>
+        <button class="tab" role="tab" data-mode="both">Drawing + Prompt</button>
+      </div>
+
+      <div class="field" id="fDraw" hidden>
+        <span class="eyebrow">Engineering drawing</span>
+        <div class="drop" id="drop">
+          <svg class="drop-art" viewBox="0 0 160 74" fill="none" stroke="#7C8798" stroke-width="1">
+            <rect x="4" y="4" width="152" height="66" stroke="#4A5768"/>
+            <rect x="22" y="16" width="46" height="30"/>
+            <circle cx="33" cy="27" r="4"/><circle cx="57" cy="27" r="4"/>
+            <circle cx="33" cy="36" r="4"/><circle cx="57" cy="36" r="4"/>
+            <path d="M22 54h46M22 51v6M68 51v6" stroke="#4A5768"/>
+            <path d="M92 16h46v30H92z"/><path d="M92 31h46" stroke-dasharray="4 3"/>
+            <path d="M115 16v30" stroke-dasharray="4 3"/>
+            <path d="M104 60h34" stroke="#4A5768"/>
+          </svg>
+          <b>Upload engineering drawing</b>
+          <small>PNG · JPG · PDF</small>
+        </div>
+        <button class="btn sm" style="width:100%;margin-top:7px" id="exDraw">
+          <svg class="icn" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg>
+          Try example drawing
+        </button>
+      </div>
+
+      <div class="field" id="fPrompt">
+        <span class="eyebrow">Describe part</span>
+        <textarea class="prompt" id="prompt" placeholder="Describe the part you want to generate…"></textarea>
+        <div class="chips" id="pchips"></div>
+      </div>
+
+      <button class="btn primary" style="width:100%;margin-bottom:16px" id="genBtn">
+        <svg class="icn" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.6"/></svg>
+        Generate CAD
+      </button>
+
+      <div class="field" style="margin:0">
+        <span class="eyebrow">Try an example</span>
+        <div class="samples" id="samples"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CENTER ============ -->
+  <div class="col center">
+    <div class="vtools">
+      <button class="vt" data-view="iso">ISO</button>
+      <button class="vt" data-view="front">FRONT</button>
+      <button class="vt" data-view="top">TOP</button>
+      <button class="vt" data-view="right">RIGHT</button>
+      <div class="vsep"></div>
+      <button class="vt" id="fitBtn">
+        <svg class="icn" viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>FIT</button>
+      <button class="vt" id="wireBtn">WIREFRAME</button>
+      <button class="vt" id="secBtn">SECTION</button>
+      <button class="vt" id="spinBtn">SPIN</button>
+      <div class="spacer"></div>
+      <button class="btn sm" id="drawBtn" disabled>
+        <svg class="icn" viewBox="0 0 24 24"><path d="M3 3h18v18H3z"/><path d="M3 15h18M15 3v18"/></svg>
+        Generate engineering drawing
+      </button>
+    </div>
+    <div class="stage">
+      <div id="gl"></div>
+
+      <svg class="axes" viewBox="0 0 60 60" id="axes">
+        <g id="axG" stroke-width="1.6" fill="none" stroke-linecap="round"></g>
+      </svg>
+      <div class="scalebar"><i></i><span id="scaleTxt">50 mm</span></div>
+
+      <div class="ov" id="ovEmpty">
+        <div class="empty">
+          <svg class="empty-art" viewBox="0 0 120 120" fill="none">
+            <path d="M60 14 20 36v48l40 22 40-22V36z" stroke="#2C3543" stroke-width="1.4"/>
+            <path d="M20 36l40 22 40-22M60 58v48" stroke="#2C3543" stroke-width="1.4"/>
+            <path d="M60 14 20 36v48" stroke="#4D8DF6" stroke-width="1.7"/>
+            <circle cx="60" cy="14" r="3" fill="#4D8DF6"/>
+            <circle cx="20" cy="36" r="3" fill="#4D8DF6"/>
+            <circle cx="20" cy="84" r="3" fill="#4D8DF6"/>
+            <circle cx="100" cy="36" r="2.4" fill="#2C3543"/>
+            <circle cx="100" cy="84" r="2.4" fill="#2C3543"/>
+            <circle cx="60" cy="106" r="2.4" fill="#2C3543"/>
+            <circle cx="60" cy="58" r="2.4" fill="#2C3543"/>
+          </svg>
+          <h3>Start designing</h3>
+          <p>Upload an engineering drawing or describe your part in plain language.</p>
+          <div class="row">
+            <button class="btn" id="e1">Upload drawing</button>
+            <button class="btn primary" id="e2">Describe part</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ov" id="ovPipe" hidden>
+        <div class="pipe" id="pipe"></div>
+      </div>
+
+      <div class="ov" id="ovErr" hidden>
+        <div class="errbox">
+          <h3><svg class="icn" viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>CAD generation failed</h3>
+          <p><b>Geometry issue detected.</b> The solid could not be validated by the kernel.</p>
+          <div class="quote" id="errMsg">The requested fillet radius exceeds the available edge thickness.</div>
+          <p style="color:var(--ink-dim);font-size:11.5px" id="errFix">Suggested correction: clamp fillet radius to 4.0 mm.</p>
+          <div style="display:flex;gap:7px;margin-top:12px">
+            <button class="btn primary" id="fixBtn">Fix automatically</button>
+            <button class="btn" id="regenBtn">Regenerate</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="minfo" id="minfo" hidden>
+        <div class="mstat"><span class="badge"><i class="dot" style="width:5px;height:5px;box-shadow:none"></i>VALID SOLID</span></div>
+        <span style="font-size:11.5px;color:var(--ink-2)" id="mtitle">Model generated successfully</span>
+        <div class="mfacts" id="mfacts"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT ============ -->
+  <div class="col right">
+    <div class="rsplit">
+      <div class="rsec ai">
+        <div class="phead">
+          <h2>AI Interpretation</h2>
+          <div class="spacer"></div>
+          <span class="eyebrow" id="aiModel">QWEN2.5-VL-7B</span>
+        </div>
+        <div class="ai-body" id="aiBody">
+          <div class="await">
+            <svg class="icn" viewBox="0 0 24 24" style="opacity:.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+            Awaiting input — no model interpreted yet.
+          </div>
+        </div>
+      </div>
+
+      <div class="rsec code">
+        <div class="phead">
+          <h2>Generated CadQuery</h2>
+          <div class="spacer"></div>
+          <span class="eyebrow" id="codeStat">— — —</span>
+        </div>
+        <div class="codewrap">
+          <div class="code-scroll" id="codeScroll">
+            <div class="code-inner">
+              <pre class="hl" id="hl"></pre>
+              <textarea class="src" id="src" spellcheck="false" placeholder="# Generated CadQuery will appear here"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="coderow">
+          <button class="btn sm" id="copyBtn"><svg class="icn" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="btn sm" id="runBtn"><svg class="icn" viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>Run</button>
+          <button class="btn sm" id="dlBtn"><svg class="icn" viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg>.py</button>
+          <div class="spacer"></div>
+          <button class="btn sm primary" id="reBtn" hidden>Regenerate CAD</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ COMMAND BAR ============ -->
+<div class="cmd">
+  <div class="act" id="act" hidden>
+    <div class="act-steps" id="actSteps"></div>
+    <div id="actDiff"></div>
+  </div>
+  <div class="cmd-side">
+    <span class="eyebrow">Natural-language editor</span>
+    <span style="font-size:10.5px;color:var(--ink-dim)">Edits the current model</span>
+  </div>
+  <div class="cmd-in">
+    <svg class="icn" viewBox="0 0 24 24"><path d="M12 2l1.9 5.8L20 9.6l-4.6 4 1.3 6.1L12 16.6 7.3 19.7l1.3-6.1L4 9.6l6.1-1.8z"/></svg>
+    <input id="cmdIn" placeholder="Ask AI to modify this model…  e.g. Make the mounting holes 8 mm instead of 6 mm." disabled />
+    <button class="mic" id="micBtn" title="Voice input">
+      <svg class="icn" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
+    </button>
+  </div>
+  <button class="btn primary" id="applyBtn" disabled style="height:36px;padding:0 16px">Apply change</button>
+  <div class="cmd-chips" id="cchips"></div>
+</div>
+</div>
+
+<!-- ============ HISTORY ============ -->
+<aside class="hist" id="hist">
+  <div class="phead" style="height:40px;border-bottom:1px solid var(--line)">
+    <h2>Design History</h2><div class="spacer"></div>
+    <button class="x" id="histClose"><svg class="icn" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+  <div class="hlist" id="hlist"></div>
+</aside>
+
+<!-- ============ DRAWING SHEET ============ -->
+<div class="sheet" id="sheet">
+  <div class="sheet-bar">
+    <span class="eyebrow">Engineering drawing · Third-angle projection</span>
+    <div class="spacer"></div>
+    <button class="btn sm" id="expPdf"><svg class="icn" viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg>Export PDF</button>
+    <button class="btn sm" id="expPng"><svg class="icn" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-6 6"/></svg>Export PNG</button>
+    <button class="btn sm primary" id="back3d">Back to 3D</button>
+  </div>
+  <div class="sheet-scroll"><div class="paper" id="paper"></div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════════
+   Text2CAD — demo shell
+   Layers: PARTS (data) → AI (mock inference) → CODEGEN → GEO (three.js)
+           → DRAW (svg) → HISTORY → UI
+   Every layer is swappable. See AI.* for the real-backend hook points.
+   ═══════════════════════════════════════════════════════════════════════ */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const fmt = n => Number.isInteger(n) ? String(n) : (Math.round(n * 100) / 100).toString();
+
+/* ─────────────────────────  PARTS  ───────────────────────── */
+const PARTS = {
+  bracket: {
+    label: "Mounting Bracket",
+    params: { base_length:100, base_width:60, thickness:10, hole_dia:8, hole_count:4,
+              support_h:45, support_t:8, fillet:0 },
+    units: { base_length:"mm", base_width:"mm", thickness:"mm", hole_dia:"mm",
+             hole_count:"", support_h:"mm", support_t:"mm", fillet:"mm" },
+    show: ["base_length","base_width","thickness","hole_dia","hole_count","support_h"],
+    labels: { base_length:"Base length", base_width:"Base width", thickness:"Thickness",
+              hole_dia:"Hole Ø", hole_count:"Hole count", support_h:"Support height",
+              support_t:"Support thickness", fillet:"Fillet radius" },
+    feats: p => ["Rectangular base plate", `${p.base_length} × ${p.base_width} mm footprint`,
+                 "Two vertical support walls", `${p.hole_count} through holes`,
+                 `${fmt(p.thickness)} mm plate thickness`,
+                 ...(p.fillet > 0 ? [`${fmt(p.fillet)} mm outer fillet`] : [])],
+    stats: p => ({ Features: 9 + (p.fillet>0?1:0), Sketches:3, Holes:p.hole_count+2, Bodies:1 }),
+    tag: "SHEET-METAL BRACKET"
+  },
+  gear: {
+    label: "Helical Gear",
+    params: { module:2.5, teeth:32, thickness:15, bore:20, hub_dia:40, hub_h:12,
+              helix_angle:15, pressure_angle:20, hole_count:4, mount_hole_dia:6, fillet:0 },
+    units: { module:"mm", teeth:"", thickness:"mm", bore:"mm", hub_dia:"mm", hub_h:"mm",
+             helix_angle:"°", pressure_angle:"°", hole_count:"", mount_hole_dia:"mm", fillet:"mm" },
+    show: ["module","teeth","helix_angle","pressure_angle","bore","thickness","hole_count"],
+    labels: { module:"Module", teeth:"Teeth", thickness:"Face width", bore:"Bore Ø",
+              hub_dia:"Hub Ø", hub_h:"Hub height", helix_angle:"Helix angle",
+              pressure_angle:"Pressure angle", hole_count:"Mounting holes",
+              mount_hole_dia:"Mount hole Ø", fillet:"Fillet radius" },
+    feats: p => ["Gear body", `${p.teeth} teeth`, "Helical tooth profile", "Central hub",
+                 `${p.hole_count} mounting holes`, `${fmt(p.pressure_angle)}° pressure angle`,
+                 `${fmt(p.helix_angle)}° helix angle`],
+    stats: p => ({ Features:12, Sketches:3, Holes:p.hole_count+1, Bodies:1 }),
+    tag: "SPUR/HELICAL GEAR"
+  },
+  flange: {
+    label: "Pipe Flange",
+    params: { outer_dia:100, bore:40, thickness:12, hole_count:6, hole_dia:10,
+              bolt_circle:78, hub_dia:62, hub_h:14, fillet:0 },
+    units: { outer_dia:"mm", bore:"mm", thickness:"mm", hole_count:"", hole_dia:"mm",
+             bolt_circle:"mm", hub_dia:"mm", hub_h:"mm", fillet:"mm" },
+    show: ["outer_dia","bore","thickness","hole_count","hole_dia","bolt_circle"],
+    labels: { outer_dia:"Outer Ø", bore:"Bore Ø", thickness:"Thickness",
+              hole_count:"Bolt holes", hole_dia:"Bolt hole Ø", bolt_circle:"Bolt circle Ø",
+              hub_dia:"Hub Ø", hub_h:"Hub height", fillet:"Fillet radius" },
+    feats: p => ["Circular flange body", `Ø${fmt(p.outer_dia)} mm outer diameter`,
+                 `Ø${fmt(p.bore)} mm central bore`, "Raised hub",
+                 `${p.hole_count} bolt holes on Ø${fmt(p.bolt_circle)} PCD`],
+    stats: p => ({ Features:8, Sketches:2, Holes:p.hole_count+1, Bodies:1 }),
+    tag: "ROTATIONAL FLANGE"
+  },
+  shaft: {
+    label: "Stepped Shaft",
+    params: { d1:25, l1:40, d2:35, l2:30, d3:20, l3:45, key_w:8, key_d:4, key_l:28, fillet:0 },
+    units: { d1:"mm", l1:"mm", d2:"mm", l2:"mm", d3:"mm", l3:"mm",
+             key_w:"mm", key_d:"mm", key_l:"mm", fillet:"mm" },
+    show: ["d1","l1","d2","l2","d3","l3","key_w"],
+    labels: { d1:"Journal Ø", l1:"Journal length", d2:"Shoulder Ø", l2:"Shoulder length",
+              d3:"Thread Ø", l3:"Thread length", key_w:"Keyway width",
+              key_d:"Keyway depth", key_l:"Keyway length", fillet:"Fillet radius" },
+    feats: p => ["Multi-diameter shaft", `Ø${fmt(p.d1)} journal`, `Ø${fmt(p.d2)} shoulder`,
+                 `${fmt(p.key_w)} × ${fmt(p.key_d)} mm keyway`, "Threaded end"],
+    stats: p => ({ Features:11, Sketches:4, Holes:0, Bodies:1 }),
+    tag: "TURNED SHAFT" }
+};
+
+/* ─────────────────────────  AI (mock)  ─────────────────────────
+   Swap-in point. Each fn returns the same shape a real provider would,
+   so only the body changes:
+
+     const r = await fetch("/api/interpret", {method:"POST", body:JSON.stringify({text})});
+     return await r.json();          // {part, params, confidence}
+
+   Provider is chosen server-side (PROVIDER=qwen|anthropic|hf) so nothing
+   here needs to know which model answered.
+   ───────────────────────────────────────────────────────────── */
+const AI = {
+  interpretPrompt(text) {
+    const t = text.toLowerCase();
+    let part = "bracket";
+    if (/gear|tooth|teeth|helix|helical|module|spur/.test(t)) part = "gear";
+    else if (/flange|pipe|bolt circle|pcd/.test(t)) part = "flange";
+    else if (/shaft|keyway|journal|spline|axle/.test(t)) part = "shaft";
+    else if (/bracket|plate|mount|angle|support/.test(t)) part = "bracket";
+
+    const p = { ...PARTS[part].params };
+    const num = re => { const m = t.match(re); return m ? parseFloat(m[1]) : null; };
+    const set = (k, v) => { if (v != null && !isNaN(v)) p[k] = v; };
+
+    if (part === "gear") {
+      set("teeth", num(/(\d+)[\s-]*(?:tooth|teeth)/));
+      set("module", num(/module\s*(?:of\s*)?([\d.]+)/));
+      set("helix_angle", num(/([\d.]+)\s*(?:°|deg\w*)?\s*helix/) ?? num(/helix\s*(?:angle\s*)?(?:of\s*)?([\d.]+)/));
+      set("pressure_angle", num(/([\d.]+)\s*(?:°|deg\w*)?\s*pressure/) ?? num(/pressure\s*angle\s*(?:of\s*)?([\d.]+)/));
+      set("bore", num(/bore\s*(?:of\s*|diameter\s*(?:of\s*)?)?([\d.]+)/));
+      set("hole_count", num(/(\w+|\d+)\s*mounting\s*holes?/) ?? wordNum(t, /(\w+)\s*mounting\s*holes?/));
+    } else if (part === "bracket") {
+      const dims = t.match(/([\d.]+)\s*(?:mm)?\s*(?:x|×|by)\s*([\d.]+)/);
+      if (dims) { p.base_length = parseFloat(dims[1]); p.base_width = parseFloat(dims[2]); }
+      set("thickness", num(/([\d.]+)\s*mm\s*thick/) ?? num(/thickness\s*(?:of\s*)?([\d.]+)/));
+      set("hole_dia", num(/([\d.]+)\s*mm\s*(?:mounting\s*)?holes?/));
+      set("hole_count", num(/(\d+)\s*(?:[\d.]+\s*mm\s*)?(?:mounting\s*)?holes?/) ?? wordNum(t, /(\w+)\s*(?:mounting\s*)?holes?/));
+    } else if (part === "flange") {
+      set("outer_dia", num(/([\d.]+)\s*mm\s*outer/) ?? num(/outer\s*(?:diameter\s*)?(?:of\s*)?([\d.]+)/));
+      set("bore", num(/([\d.]+)\s*mm\s*(?:inner\s*)?bore/) ?? num(/bore\s*(?:of\s*)?([\d.]+)/));
+      set("hole_count", num(/(\d+)\s*(?:mounting\s*|bolt\s*)?holes?/) ?? wordNum(t, /(\w+)\s*(?:mounting\s*|bolt\s*)?holes?/));
+      set("thickness", num(/([\d.]+)\s*mm\s*thick/));
+    } else {
+      set("d1", num(/([\d.]+)\s*mm\s*(?:journal|diameter)/));
+      set("key_w", num(/([\d.]+)\s*mm\s*key/));
+    }
+    return { part, params: p, confidence: 0.92 + Math.random() * 0.06 };
+  },
+
+  analyzeDrawing() {
+    // Vision path: image → structured JSON. Mocked to the example sheet.
+    return { part: "bracket",
+             params: { ...PARTS.bracket.params, base_length:100, base_width:60,
+                       thickness:10, hole_dia:8, hole_count:4, support_h:45 },
+             confidence: 0.89,
+             ocr: ["100.0", "60.0", "⌀8.0 × 4", "R5", "10.0"] };
+  },
+
+  modifyModel(part, params, instr) {
+    const t = instr.toLowerCase();
+    const P = PARTS[part], out = { ...params }, changes = [];
+    const push = (k, v) => {
+      if (v == null || isNaN(v) || !(k in out)) return;
+      const from = out[k]; if (Math.abs(from - v) < 1e-9) return;
+      out[k] = v; changes.push({ key:k, label:P.labels[k] || k, from, to:v, unit:P.units[k] || "" });
+    };
+    const num = re => { const m = t.match(re); return m ? parseFloat(m[1]) : null; };
+    const nums = [...t.matchAll(/([\d.]+)/g)].map(m => parseFloat(m[1]));
+    const last = nums.length ? nums[nums.length - 1] : null;
+
+    const has = re => re.test(t);
+    if (has(/thick/)) push("thickness", num(/thickness[^\d]*([\d.]+)/) ?? num(/([\d.]+)\s*mm/) ?? last);
+    if (has(/bore/)) push("bore", num(/bore[^\d]*([\d.]+)/) ?? num(/to\s*([\d.]+)/) ?? last);
+    if (has(/helix/)) push("helix_angle", num(/helix[^\d]*([\d.]+)/) ?? last);
+    if (has(/pressure/)) push("pressure_angle", num(/pressure[^\d]*([\d.]+)/) ?? last);
+    if (has(/teeth|tooth/)) push("teeth", num(/([\d.]+)\s*(?:teeth|tooth)/) ?? num(/teeth[^\d]*([\d.]+)/) ?? last);
+    if (has(/module/)) push("module", num(/module[^\d]*([\d.]+)/) ?? last);
+    if (has(/hub/)) {
+      if (has(/longer|taller|height/)) push("hub_h", (out.hub_h ?? 0) + (num(/([\d.]+)\s*mm/) ?? 5));
+      else push("hub_dia", num(/hub[^\d]*([\d.]+)/) ?? last);
+    }
+    if (has(/hole/)) {
+      if (has(/add|more|extra/)) {
+        const n = num(/add\s*([\d.]+)/) ?? wordNum(t, /add\s*(\w+)/) ?? 2;
+        push("hole_count", (out.hole_count ?? 4) + n);
+      } else if (has(/remove|delete/) && has(/central|center|centre|bore/)) {
+        push("bore", 0);
+      } else {
+        const d = num(/holes?[^\d]*([\d.]+)\s*mm/) ?? num(/([\d.]+)\s*mm\s*(?:diameter|dia|⌀)?\s*holes?/) ?? num(/holes?\s*(?:to|be)?\s*([\d.]+)/);
+        if ("hole_dia" in out) push("hole_dia", d ?? last);
+        if ("mount_hole_dia" in out) push("mount_hole_dia", d ?? last);
+      }
+    }
+    if (has(/fillet|round|chamfer/)) push("fillet", num(/([\d.]+)\s*mm/) ?? num(/fillet[^\d]*([\d.]+)/) ?? 5);
+    if (has(/diameter/) && !changes.length && "outer_dia" in out) push("outer_dia", last);
+    if (has(/width/) && "base_width" in out) push("base_width", num(/width[^\d]*([\d.]+)/) ?? last);
+    if (has(/length/) && "base_length" in out) push("base_length", num(/length[^\d]*([\d.]+)/) ?? last);
+
+    return { params: out, changes, understood: changes.length > 0 };
+  },
+
+  validate(part, params) {
+    const f = params.fillet ?? 0;
+    const t = params.thickness ?? params.l1 ?? 10;
+    if (f > 0 && f > t / 2)
+      return { ok:false,
+               msg:`The requested fillet radius (${fmt(f)} mm) exceeds half the available edge thickness (${fmt(t)} mm).`,
+               fix:`Suggested correction: clamp fillet radius to ${fmt(t/2)} mm.`,
+               apply: p => ({ ...p, fillet: t/2 }) };
+    if ((params.bore ?? 0) > 0 && params.hub_dia && params.bore >= params.hub_dia - 4)
+      return { ok:false, msg:`Bore Ø${fmt(params.bore)} mm leaves insufficient hub wall.`,
+               fix:`Suggested correction: increase hub Ø to ${fmt(params.bore + 20)} mm.`,
+               apply: p => ({ ...p, hub_dia: p.bore + 20 }) };
+    return { ok:true };
+  }
+};
+function wordNum(t, re) {
+  const W = { one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,twelve:12 };
+  const m = t.match(re); return m ? (W[m[1]] ?? null) : null;
+}
+
+/* ─────────────────────────  CODEGEN  ───────────────────────── */
+const CODE = {
+  bracket: p => `import cadquery as cq
+
+# ── Parameters ──────────────────────────────────────────────
+base_length = ${fmt(p.base_length)}       # mm
+base_width  = ${fmt(p.base_width)}        # mm
+thickness   = ${fmt(p.thickness)}         # mm
+hole_dia    = ${fmt(p.hole_dia)}          # mm
+hole_count  = ${fmt(p.hole_count)}
+support_h   = ${fmt(p.support_h)}         # mm
+support_t   = ${fmt(p.support_t)}         # mm
+fillet_r    = ${fmt(p.fillet)}            # mm
+
+# ── Base plate ──────────────────────────────────────────────
+result = cq.Workplane("XY").box(
+    base_length, base_width, thickness, centered=(True, True, False)
+)
+
+# ── Mounting holes on a rectangular pattern ─────────────────
+result = (
+    result.faces(">Z").workplane()
+    .rect(base_length - 34, base_width - 22, forConstruction=True)
+    .vertices()
+    .hole(hole_dia)
+)
+
+# ── Vertical support walls ──────────────────────────────────
+for side in (-1, 1):
+    wall = (
+        cq.Workplane("XY")
+        .center(side * (base_length / 2 - support_t / 2), 0)
+        .box(support_t, base_width, support_h + thickness,
+             centered=(True, True, False))
+    )
+    result = result.union(wall)
+${p.fillet > 0 ? `
+# ── Outer fillets ───────────────────────────────────────────
+result = result.edges("|Z").fillet(fillet_r)
+` : ""}`,
+
+  gear: p => `import cadquery as cq
+from math import cos, sin, pi, tan, radians
+
+# ── Parameters ──────────────────────────────────────────────
+module         = ${fmt(p.module)}         # mm
+teeth          = ${fmt(p.teeth)}
+pressure_angle = ${fmt(p.pressure_angle)} # deg
+helix_angle    = ${fmt(p.helix_angle)}    # deg
+face_width     = ${fmt(p.thickness)}      # mm
+bore           = ${fmt(p.bore)}           # mm
+hub_dia        = ${fmt(p.hub_dia)}        # mm
+hub_h          = ${fmt(p.hub_h)}          # mm
+hole_count     = ${fmt(p.hole_count)}
+hole_dia       = ${fmt(p.mount_hole_dia)} # mm
+
+r_pitch = module * teeth / 2.0
+r_tip   = r_pitch + module
+r_root  = r_pitch - 1.25 * module
+
+# ── Tooth profile (polar sampling) ──────────────────────────
+def tooth_profile():
+    pts, step = [], 2 * pi / teeth
+    half = pi / (2 * teeth)
+    for i in range(teeth):
+        a = i * step
+        for da, r in ((-half * 1.55, r_root), (-half * 0.78, r_tip),
+                      ( half * 0.78, r_tip), ( half * 1.55, r_root)):
+            pts.append((r * cos(a + da), r * sin(a + da)))
+    return pts
+
+# ── Helical body: twist the extrusion along Z ───────────────
+twist = degrees_of_twist = \\
+    (tan(radians(helix_angle)) * face_width / r_pitch) * 180.0 / pi
+
+result = (
+    cq.Workplane("XY")
+    .polyline(tooth_profile()).close()
+    .twistExtrude(face_width, twist)
+)
+
+# ── Central hub ─────────────────────────────────────────────
+result = (
+    result.faces(">Z").workplane()
+    .circle(hub_dia / 2).extrude(hub_h)
+)
+${p.bore > 0 ? `
+# ── Bore ────────────────────────────────────────────────────
+result = result.faces(">Z").workplane().hole(bore)
+` : ""}
+# ── Mounting holes on a polar array ─────────────────────────
+result = (
+    result.faces("<Z").workplane()
+    .polarArray((hub_dia + r_root) / 2 / 2 + hub_dia / 4, 0, 360, hole_count)
+    .hole(hole_dia)
+)`,
+
+  flange: p => `import cadquery as cq
+
+# ── Parameters ──────────────────────────────────────────────
+outer_dia   = ${fmt(p.outer_dia)}    # mm
+bore        = ${fmt(p.bore)}         # mm
+thickness   = ${fmt(p.thickness)}    # mm
+hub_dia     = ${fmt(p.hub_dia)}      # mm
+hub_h       = ${fmt(p.hub_h)}        # mm
+hole_count  = ${fmt(p.hole_count)}
+hole_dia    = ${fmt(p.hole_dia)}     # mm
+bolt_circle = ${fmt(p.bolt_circle)}  # mm
+
+# ── Flange disc + raised hub ────────────────────────────────
+result = (
+    cq.Workplane("XY")
+    .circle(outer_dia / 2).extrude(thickness)
+    .faces(">Z").workplane()
+    .circle(hub_dia / 2).extrude(hub_h)
+)
+${p.bore > 0 ? `
+# ── Through bore ────────────────────────────────────────────
+result = result.faces(">Z").workplane().hole(bore)
+` : ""}
+# ── Bolt holes on pitch-circle diameter ─────────────────────
+result = (
+    result.faces("<Z").workplane()
+    .polarArray(bolt_circle / 2, 0, 360, hole_count)
+    .hole(hole_dia)
+)
+${p.fillet > 0 ? `
+# ── Fillets ─────────────────────────────────────────────────
+result = result.edges("%CIRCLE").fillet(${fmt(p.fillet)})
+` : ""}`,
+
+  shaft: p => `import cadquery as cq
+
+# ── Parameters ──────────────────────────────────────────────
+d1, l1 = ${fmt(p.d1)}, ${fmt(p.l1)}    # journal
+d2, l2 = ${fmt(p.d2)}, ${fmt(p.l2)}    # shoulder
+d3, l3 = ${fmt(p.d3)}, ${fmt(p.l3)}    # threaded end
+key_w  = ${fmt(p.key_w)}               # keyway width
+key_d  = ${fmt(p.key_d)}               # keyway depth
+key_l  = ${fmt(p.key_l)}               # keyway length
+
+# ── Stepped body ────────────────────────────────────────────
+result = (
+    cq.Workplane("XY")
+    .circle(d1 / 2).extrude(l1)
+    .faces(">Z").workplane().circle(d2 / 2).extrude(l2)
+    .faces(">Z").workplane().circle(d3 / 2).extrude(l3)
+)
+
+# ── Keyway pocket on the journal ────────────────────────────
+result = (
+    result.faces(">X").workplane(centerOption="CenterOfBoundBox")
+    .center(-(l1 + l2 + l3) / 2 + l1 / 2, 0)
+    .rect(key_l, key_w).cutBlind(-key_d)
+)
+
+# ── Shoulder relief fillet ──────────────────────────────────
+result = result.edges(cq.selectors.RadiusNthSelector(0)).fillet(1.0)`
+};
+
+/* ─────────────────────────  GEOMETRY  ───────────────────────── */
+const GEO = {
+  build(part, p) {
+    const g = new THREE.Group();
+    const mesh = ({
+      bracket: GEO.bracket, gear: GEO.gear, flange: GEO.flange, shaft: GEO.shaft
+    })[part](p);
+    mesh.forEach(m => g.add(m));
+    return g;
+  },
+
+  solid(geo) {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xA8B4C4, metalness: 0.62, roughness: 0.34,
+      side: THREE.DoubleSide, clippingPlanes: [], clipShadows: true
+    });
+    const m = new THREE.Mesh(geo, mat);
+    const eg = new THREE.EdgesGeometry(geo, 22);
+    const em = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({
+      color: 0xD6E2F2, transparent: true, opacity: 0.32, clippingPlanes: []
+    }));
+    m.add(em); m.userData.edges = em;
+    return m;
+  },
+
+  ring(shape, holes) { holes.forEach(h => shape.holes.push(h)); return shape; },
+  hole(x, y, r) { const p = new THREE.Path(); p.absarc(x, y, r, 0, Math.PI * 2, true); return p; },
+  ext(shape, depth, steps) {
+    return new THREE.ExtrudeGeometry(shape, { depth, steps: steps || 1, bevelEnabled: false, curveSegments: 42 });
+  },
+
+  bracket(p) {
+    const L = p.base_length, W = p.base_width, T = p.thickness, r = Math.max(0.01, p.fillet);
+    const s = new THREE.Shape();
+    if (p.fillet > 0) {
+      s.moveTo(-L/2 + r, -W/2);
+      s.lineTo(L/2 - r, -W/2); s.absarc(L/2 - r, -W/2 + r, r, -Math.PI/2, 0, false);
+      s.lineTo(L/2, W/2 - r);  s.absarc(L/2 - r, W/2 - r, r, 0, Math.PI/2, false);
+      s.lineTo(-L/2 + r, W/2); s.absarc(-L/2 + r, W/2 - r, r, Math.PI/2, Math.PI, false);
+      s.lineTo(-L/2, -W/2 + r);s.absarc(-L/2 + r, -W/2 + r, r, Math.PI, Math.PI*1.5, false);
+    } else {
+      s.moveTo(-L/2,-W/2); s.lineTo(L/2,-W/2); s.lineTo(L/2,W/2); s.lineTo(-L/2,W/2); s.closePath();
+    }
+    const rx = (L - 34) / 2, ry = (W - 22) / 2, hr = p.hole_dia / 2;
+    const n = Math.max(2, Math.round(p.hole_count));
+    const pts = [];
+    if (n <= 4) { [[-1,-1],[1,-1],[1,1],[-1,1]].slice(0, n).forEach(([a,b]) => pts.push([a*rx, b*ry])); }
+    else { const per = Math.ceil(n / 2);
+      for (let i = 0; i < n; i++) { const side = i < per ? -1 : 1, k = i % per;
+        pts.push([-rx + (2*rx) * (per === 1 ? .5 : k/(per-1)), side * ry]); } }
+    pts.forEach(([x,y]) => s.holes.push(GEO.hole(x, y, hr)));
+    const out = [GEO.solid(GEO.ext(s, T))];
+
+    // Vertical support walls, each pierced by a lightening hole.
+    const st = p.support_t, sh = p.support_h + T;
+    [-1, 1].forEach(sgn => {
+      const w = new THREE.Shape();
+      w.moveTo(-W/2, 0); w.lineTo(W/2, 0); w.lineTo(W/2, sh); w.lineTo(-W/2, sh); w.closePath();
+      const lr = Math.min(W, sh) * 0.16;
+      if (lr > 1.5) w.holes.push(GEO.hole(0, sh * 0.62, lr));
+      const g = GEO.ext(w, st);
+      // local x→width, y→height, z→thickness  ⇒  world y, z, x
+      g.rotateX(Math.PI / 2); g.rotateZ(Math.PI / 2);
+      const m = GEO.solid(g);
+      m.position.x = sgn < 0 ? -L / 2 : L / 2 - st;
+      out.push(m);
+    });
+    return out;
+  },
+
+  gear(p) {
+    const m = p.module, N = Math.max(6, Math.round(p.teeth)), T = p.thickness;
+    const rp = m * N / 2, rt = rp + m, rr = Math.max(2, rp - 1.25 * m);
+    const s = new THREE.Shape();
+    const step = Math.PI * 2 / N, half = Math.PI / (2 * N);
+    // pressure angle subtly narrows the tip
+    const tipK = 0.86 - (p.pressure_angle - 20) * 0.012;
+    for (let i = 0; i < N; i++) {
+      const a = i * step;
+      const q = [[-half*1.62, rr], [-half*tipK, rt], [half*tipK, rt], [half*1.62, rr]];
+      q.forEach(([da, r], j) => {
+        const x = r * Math.cos(a + da), y = r * Math.sin(a + da);
+        (i === 0 && j === 0) ? s.moveTo(x, y) : s.lineTo(x, y);
+      });
+    }
+    s.closePath();
+    if (p.bore > 0) s.holes.push(GEO.hole(0, 0, p.bore / 2));
+    const bcr = (p.hub_dia / 2 + rr) / 2;
+    const nh = Math.max(0, Math.round(p.hole_count));
+    for (let i = 0; i < nh; i++) {
+      const a = i * Math.PI * 2 / nh + Math.PI / nh;
+      s.holes.push(GEO.hole(bcr * Math.cos(a), bcr * Math.sin(a), p.mount_hole_dia / 2));
+    }
+    const g = GEO.ext(s, T, 34);
+    // helical twist — true relationship: total = tan(β)·b / r_pitch
+    const GAIN = 2.6;  // visual exaggeration; set 1.0 for true scale
+    const total = Math.tan(p.helix_angle * Math.PI / 180) * T / rp * GAIN;
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const a = (z / T) * total, c = Math.cos(a), sn = Math.sin(a);
+      pos.setXY(i, x * c - y * sn, x * sn + y * c);
+    }
+    pos.needsUpdate = true; g.computeVertexNormals();
+    const out = [GEO.solid(g)];
+
+    if (p.hub_h > 0) {
+      const hs = new THREE.Shape();
+      hs.absarc(0, 0, p.hub_dia / 2, 0, Math.PI * 2, false);
+      if (p.bore > 0) hs.holes.push(GEO.hole(0, 0, p.bore / 2));
+      const hm = GEO.solid(GEO.ext(hs, p.hub_h));
+      hm.position.z = T; out.push(hm);
+    }
+    return out;
+  },
+
+  flange(p) {
+    const s = new THREE.Shape();
+    s.absarc(0, 0, p.outer_dia / 2, 0, Math.PI * 2, false);
+    if (p.bore > 0) s.holes.push(GEO.hole(0, 0, p.bore / 2));
+    const n = Math.max(1, Math.round(p.hole_count)), br = p.bolt_circle / 2;
+    for (let i = 0; i < n; i++) {
+      const a = i * Math.PI * 2 / n;
+      s.holes.push(GEO.hole(br * Math.cos(a), br * Math.sin(a), p.hole_dia / 2));
+    }
+    const out = [GEO.solid(GEO.ext(s, p.thickness))];
+    const hs = new THREE.Shape();
+    hs.absarc(0, 0, p.hub_dia / 2, 0, Math.PI * 2, false);
+    if (p.bore > 0) hs.holes.push(GEO.hole(0, 0, p.bore / 2));
+    const hm = GEO.solid(GEO.ext(hs, p.hub_h));
+    hm.position.z = p.thickness; out.push(hm);
+    return out;
+  },
+
+  shaft(p) {
+    const prof = [];
+    const segs = [[p.d1, p.l1], [p.d2, p.l2], [p.d3, p.l3]];
+    let z = 0;
+    prof.push(new THREE.Vector2(0, 0));
+    segs.forEach(([d, l]) => {
+      prof.push(new THREE.Vector2(d / 2, z));
+      prof.push(new THREE.Vector2(d / 2, z + l));
+      z += l;
+    });
+    prof.push(new THREE.Vector2(0, z));
+    // Lathe revolves the profile about +Y; rotate the geometry so it runs along +Z.
+    const g = new THREE.LatheGeometry(prof, 64);
+    g.rotateX(Math.PI / 2);
+    const out = [GEO.solid(g)];
+
+    // Keyway pocket, sunk into the journal surface
+    const kg = new THREE.BoxGeometry(p.key_d, p.key_w, p.key_l);
+    const km = GEO.solid(kg);
+    km.material.color.set(0x8894A4);
+    km.position.set(p.d1 / 2 - p.key_d / 2, 0, p.l1 / 2);
+    out.push(km);
+
+    // thread grooves — thin rings to read as threading
+    const tn = 9, tz0 = p.l1 + p.l2;
+    for (let i = 0; i < tn; i++) {
+      const tg = new THREE.TorusGeometry(p.d3 / 2, 0.5, 6, 40);
+      const tm = GEO.solid(tg);
+      tm.material.color.set(0x94A0B0);
+      tm.position.z = tz0 + 4 + i * (p.l3 - 8) / (tn - 1);
+      out.push(tm);
+    }
+    return out;
+  }
+};
+
+/* ─────────────────────────  VIEWER  ───────────────────────── */
+const V = (() => {
+  const host = $("#gl");
+  const scene = new THREE.Scene();
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.localClippingEnabled = true;
+  host.appendChild(renderer.domElement);
+
+  const cam = new THREE.PerspectiveCamera(38, 1, 0.5, 6000);
+  const target = new THREE.Vector3();
+  let dist = 300, theta = -Math.PI * 0.28, phi = Math.PI * 0.34;
+  let spin = true, wire = false, section = false;
+
+  scene.add(new THREE.HemisphereLight(0xBFD4EE, 0x141821, 0.85));
+  const d1 = new THREE.DirectionalLight(0xffffff, 0.95); d1.position.set(1, 0.7, 1.4); scene.add(d1);
+  const d2 = new THREE.DirectionalLight(0x9FC0EA, 0.4); d2.position.set(-1.2, -0.6, 0.4); scene.add(d2);
+  const d3 = new THREE.DirectionalLight(0xffffff, 0.28); d3.position.set(0, -1, -1); scene.add(d3);
+
+  const grid = new THREE.GridHelper(600, 30, 0x2A3442, 0x1A2029);
+  grid.rotation.x = Math.PI / 2; grid.position.z = -0.4;
+  grid.material.transparent = true; grid.material.opacity = 0.55;
+  scene.add(grid);
+
+  const clip = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
+  let model = null, radius = 100;
+
+  function setModel(g) {
+    if (model) { scene.remove(model); disposeAll(model); }
+    model = g; scene.add(g);
+    const box = new THREE.Box3().setFromObject(g);
+    const c = box.getCenter(new THREE.Vector3());
+    g.position.sub(c);                 // centre at origin
+    const size = box.getSize(new THREE.Vector3());
+    radius = Math.max(size.x, size.y, size.z) * 0.62;
+    grid.scale.setScalar(Math.max(0.5, radius / 100));
+    applyModes();
+    $("#scaleTxt").textContent = `${Math.round(radius / 2 / 5) * 5 || 5} mm`;
+  }
+  function disposeAll(o) {
+    o.traverse(n => { if (n.geometry) n.geometry.dispose();
+                      if (n.material) (Array.isArray(n.material) ? n.material : [n.material]).forEach(m => m.dispose()); });
+  }
+  function eachMat(fn) {
+    if (!model) return;
+    model.traverse(n => { if (n.isMesh) fn(n.material, n, false);
+                          if (n.isLineSegments) fn(n.material, n, true); });
+  }
+  function applyModes() {
+    eachMat((m, n, isLine) => {
+      m.clippingPlanes = section ? [clip] : [];
+      m.needsUpdate = true;
+      if (isLine) { m.opacity = wire ? 0.95 : 0.32; }
+      else { m.wireframe = false; m.transparent = wire; m.opacity = wire ? 0.06 : 1; m.depthWrite = !wire; }
+    });
+  }
+  function fit(anim) {
+    const d = radius / Math.tan(cam.fov * Math.PI / 360) * 1.45;
+    if (anim) tweenDist(d); else dist = d;
+  }
+  let tw = null;
+  function tweenDist(d) { const from = dist, t0 = performance.now();
+    tw = () => { const k = Math.min(1, (performance.now() - t0) / 420);
+      dist = from + (d - from) * ease(k); if (k >= 1) tw = null; }; }
+  const ease = k => 1 - Math.pow(1 - k, 3);
+
+  function view(name, anim) {
+    const A = { iso:[-Math.PI*0.28, Math.PI*0.34], front:[-Math.PI/2, Math.PI/2],
+                top:[-Math.PI/2, 0.0001], right:[0, Math.PI/2] }[name];
+    if (!A) return;
+    spin = false; $("#spinBtn").classList.remove("on");
+    if (!anim) { theta = A[0]; phi = A[1]; return; }
+    const t0 = performance.now(), f = [theta, phi];
+    const norm = a => { while (a - f[0] > Math.PI) a -= Math.PI*2; while (a - f[0] < -Math.PI) a += Math.PI*2; return a; };
+    const tt = norm(A[0]);
+    tw = () => { const k = Math.min(1, (performance.now() - t0) / 480), e = ease(k);
+      theta = f[0] + (tt - f[0]) * e; phi = f[1] + (A[1] - f[1]) * e; if (k >= 1) tw = null; };
+  }
+
+  /* CQ-editor mouse bindings: LMB rotate · MMB/Ctrl pan · RMB/Shift zoom · wheel zoom */
+  let drag = null;
+  const el = renderer.domElement;
+  el.addEventListener("contextmenu", e => e.preventDefault());
+  el.addEventListener("pointerdown", e => {
+    el.setPointerCapture(e.pointerId);
+    const mode = (e.button === 1 || e.ctrlKey) ? "pan" : (e.button === 2 || e.shiftKey) ? "zoom" : "rot";
+    drag = { mode, x: e.clientX, y: e.clientY }; spin = false; $("#spinBtn").classList.remove("on");
+  });
+  el.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (drag.mode === "rot") { theta -= dx * 0.0075; phi = Math.max(0.02, Math.min(Math.PI - 0.02, phi - dy * 0.0075)); }
+    else if (drag.mode === "zoom") { dist = Math.max(radius * 0.35, Math.min(radius * 22, dist * (1 + dy * 0.006))); }
+    else { const s = dist * 0.0016;
+      const right = new THREE.Vector3().subVectors(cam.position, target).cross(cam.up).normalize();
+      const up = new THREE.Vector3().crossVectors(right, new THREE.Vector3().subVectors(cam.position, target)).normalize();
+      target.addScaledVector(right, -dx * s).addScaledVector(up, -dy * s); }
+  });
+  addEventListener("pointerup", () => drag = null);
+  el.addEventListener("wheel", e => {
+    e.preventDefault();
+    dist = Math.max(radius * 0.35, Math.min(radius * 22, dist * (1 + Math.sign(e.deltaY) * 0.11)));
+  }, { passive: false });
+
+  function resize() {
+    const w = host.clientWidth, h = host.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(host); resize();
+
+  const axG = $("#axG");
+  function drawAxes() {
+    const R = 20, cx = 30, cy = 30;
+    const dirs = [["X", new THREE.Vector3(1,0,0), "#F2606A"],
+                  ["Y", new THREE.Vector3(0,1,0), "#3DD68C"],
+                  ["Z", new THREE.Vector3(0,0,1), "#4D8DF6"]];
+    let s = "";
+    dirs.forEach(([n, v, c]) => {
+      const p = v.clone().project(cam);
+      const x = cx + p.x * R, y = cy - p.y * R;
+      s += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${c}"/>`;
+      s += `<text x="${(cx+(x-cx)*1.32).toFixed(1)}" y="${(cy+(y-cy)*1.32+3).toFixed(1)}" fill="${c}" font-size="8" font-family="monospace" text-anchor="middle" stroke="none">${n}</text>`;
+    });
+    axG.innerHTML = s;
+  }
+
+  let clock = 0;
+  (function loop() {
+    requestAnimationFrame(loop);
+    if (tw) tw();
+    if (spin && model) theta += 0.0034;
+    clock += 0.016;
+    if (section) { clip.constant = Math.sin(clock * 0.5) * radius * 0.35; }
+    cam.position.set(
+      target.x + dist * Math.sin(phi) * Math.cos(theta),
+      target.y + dist * Math.sin(phi) * Math.sin(theta),
+      target.z + dist * Math.cos(phi));
+    cam.up.set(0, 0, 1); cam.lookAt(target);
+    renderer.render(scene, cam);
+    drawAxes();
+  })();
+
+  return {
+    setModel, fit, view,
+    get spin() { return spin; }, set spin(v) { spin = v; },
+    toggleWire() { wire = !wire; applyModes(); return wire; },
+    toggleSection() { section = !section; if (!section) clip.constant = 0; applyModes(); return section; },
+    snapshot(white) {
+      const bg = scene.background;
+      if (white) {
+        scene.background = new THREE.Color(0xffffff);
+        eachMat((m, n, isLine) => { if (isLine) { m.color.set(0x000000); m.opacity = 1; }
+                                    else { m.transparent = true; m.opacity = 0; } });
+      }
+      renderer.render(scene, cam);
+      const url = renderer.domElement.toDataURL("image/png");
+      if (white) { scene.background = bg;
+        eachMat((m, n, isLine) => { if (isLine) { m.color.set(0xD6E2F2); } });
+        applyModes(); }
+      return url;
+    }
+  };
+})();
+
+/* ─────────────────────────  DRAWING SHEET  ───────────────────────── */
+const DRAW = {
+  sheet(part, params, isoURL) {
+    const W = 1120, H = 780, P = PARTS[part];
+    const q = [[40,40,480,320],[560,40,480,320],[40,392,480,320],[560,392,480,320]];
+    const views = DRAW.views(part, params);
+    let body = "";
+    ["FRONT VIEW","TOP VIEW","RIGHT VIEW","ISOMETRIC"].forEach((name, i) => {
+      const [x,y,w,h] = q[i];
+      body += `<g><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="#CCC" stroke-width=".6"/>
+        <text x="${x+8}" y="${y+16}" font-family="monospace" font-size="10" letter-spacing="1" fill="#555">${name}</text>`;
+      if (i === 3) {
+        body += isoURL ? `<image x="${x+10}" y="${y+22}" width="${w-20}" height="${h-32}" href="${isoURL}" preserveAspectRatio="xMidYMid meet"/>` : "";
+      } else {
+        body += `<g transform="translate(${x+w/2},${y+h/2+8}) scale(${views.scale})">${views.v[i]}</g>`;
+      }
+      body += `</g>`;
+    });
+    const now = new Date().toISOString().slice(0,10);
+    const dims = P.show.slice(0,4).map(k => `${P.labels[k]}: ${fmt(params[k])}${P.units[k]}`).join("   ·   ");
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">
+      <rect width="${W}" height="${H}" fill="#fff"/>
+      <rect x="14" y="14" width="${W-28}" height="${H-28}" fill="none" stroke="#000" stroke-width="1.6"/>
+      <rect x="22" y="22" width="${W-44}" height="${H-44}" fill="none" stroke="#000" stroke-width=".7"/>
+      ${body}
+      <g stroke="#000" stroke-width="1.1" fill="none">
+        <rect x="560" y="640" width="480" height="120"/>
+        <line x1="560" y1="676" x2="1040" y2="676"/><line x1="560" y1="712" x2="1040" y2="712"/>
+        <line x1="820" y1="640" x2="820" y2="712"/><line x1="700" y1="712" x2="700" y2="760"/>
+        <line x1="900" y1="712" x2="900" y2="760"/>
+      </g>
+      <g font-family="monospace" font-size="9" fill="#666" letter-spacing=".5">
+        <text x="568" y="654">PART NAME</text><text x="828" y="654">DRAWN BY</text>
+        <text x="568" y="690">MATERIAL</text><text x="828" y="690">DATE</text>
+        <text x="568" y="726">SCALE</text><text x="708" y="726">UNITS</text><text x="908" y="726">SHEET</text>
+      </g>
+      <g font-family="monospace" font-size="13" fill="#000" font-weight="bold">
+        <text x="568" y="670">${P.label.toUpperCase()}</text><text x="828" y="670">TEXT2CAD v0.1</text>
+        <text x="568" y="706">STEEL / AS SPEC.</text><text x="828" y="706">${now}</text>
+        <text x="568" y="744">1 : 1</text><text x="708" y="744">MILLIMETRES</text><text x="908" y="744">1 OF 1</text>
+      </g>
+      <g font-family="monospace" font-size="9.5" fill="#333">
+        <text x="40" y="756">THIRD-ANGLE PROJECTION · ALL DIMENSIONS IN MM · TOL ±0.2 UNLESS STATED</text>
+        <text x="40" y="740">${dims}</text>
+      </g>
+      <g transform="translate(494,700)" stroke="#000" fill="none" stroke-width="1">
+        <circle cx="0" cy="0" r="15"/><circle cx="0" cy="0" r="7"/>
+        <ellipse cx="34" cy="0" rx="6" ry="15"/><ellipse cx="34" cy="0" rx="6" ry="7"/>
+        <line x1="-20" y1="0" x2="46" y2="0" stroke-dasharray="6 2 1 2"/>
+      </g>
+    </svg>`;
+  },
+
+  views(part, p) {
+    const dm = (x1,y1,x2,y2,txt,off) => {
+      const o = off ?? 0, vert = Math.abs(x2-x1) < 1;
+      if (vert) return `<g stroke="#000" stroke-width=".7" fill="none">
+        <line x1="${x1+o}" y1="${y1}" x2="${x1+o}" y2="${y2}"/>
+        <line x1="${x1}" y1="${y1}" x2="${x1+o}" y2="${y1}" stroke-dasharray="2 2"/>
+        <line x1="${x2}" y1="${y2}" x2="${x1+o}" y2="${y2}" stroke-dasharray="2 2"/>
+        <path d="M${x1+o-3} ${y1+7}l3-7 3 7M${x1+o-3} ${y2-7}l3 7 3-7" fill="#000"/>
+        </g><text x="${x1+o+5}" y="${(y1+y2)/2+3}" font-family="monospace" font-size="11" fill="#000">${txt}</text>`;
+      return `<g stroke="#000" stroke-width=".7" fill="none">
+        <line x1="${x1}" y1="${y1+o}" x2="${x2}" y2="${y1+o}"/>
+        <line x1="${x1}" y1="${y1}" x2="${x1}" y2="${y1+o}" stroke-dasharray="2 2"/>
+        <line x1="${x2}" y1="${y2}" x2="${x2}" y2="${y1+o}" stroke-dasharray="2 2"/>
+        <path d="M${x1+7} ${y1+o-3}l-7 3 7 3M${x2-7} ${y1+o-3}l7 3-7 3" fill="#000"/>
+        </g><text x="${(x1+x2)/2}" y="${y1+o-5}" font-family="monospace" font-size="11" fill="#000" text-anchor="middle">${txt}</text>`;
+    };
+    const cl = (x1,y1,x2,y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#000" stroke-width=".5" stroke-dasharray="9 3 2 3"/>`;
+    const S = 'stroke="#000" stroke-width="1.5" fill="none"';
+
+    if (part === "bracket") {
+      const L=p.base_length, W=p.base_width, T=p.thickness, H=p.support_h+T, st=p.support_t, hr=p.hole_dia/2;
+      const front = `<rect x="${-L/2}" y="${-T}" width="${L}" height="${T}" ${S}/>
+        <rect x="${-L/2}" y="${-H}" width="${st}" height="${H-T}" ${S}/>
+        <rect x="${L/2-st}" y="${-H}" width="${st}" height="${H-T}" ${S}/>
+        ${cl(0,-H-14,0,18)}${dm(-L/2,20,L/2,20,`${fmt(L)}`,24)}${dm(L/2,-H,L/2,0,`${fmt(H)}`,30)}`;
+      const rx=(L-34)/2, ry=(W-22)/2;
+      let holes="", cls="";
+      [[-1,-1],[1,-1],[1,1],[-1,1]].slice(0,Math.min(4,p.hole_count)).forEach(([a,b])=>{
+        holes+=`<circle cx="${a*rx}" cy="${b*ry}" r="${hr}" ${S}/>`;
+        cls+=cl(a*rx-hr-5,b*ry,a*rx+hr+5,b*ry)+cl(a*rx,b*ry-hr-5,a*rx,b*ry+hr+5); });
+      const top = `<rect x="${-L/2}" y="${-W/2}" width="${L}" height="${W}" ${S}/>${holes}${cls}
+        ${cl(-L/2-12,0,L/2+12,0)}${cl(0,-W/2-12,0,W/2+12)}
+        ${dm(-L/2,W/2,L/2,W/2,`${fmt(L)}`,26)}${dm(L/2,-W/2,L/2,W/2,`${fmt(W)}`,26)}
+        <text x="${-rx}" y="${-ry-12}" font-family="monospace" font-size="11" text-anchor="middle">⌀${fmt(p.hole_dia)} (${p.hole_count}×)</text>`;
+      const right = `<rect x="${-W/2}" y="${-T}" width="${W}" height="${T}" ${S}/>
+        <rect x="${-W/2}" y="${-H}" width="${W}" height="${H-T}" ${S} stroke-dasharray="6 3"/>
+        ${cl(0,-H-14,0,18)}${dm(-W/2,20,W/2,20,`${fmt(W)}`,24)}${dm(-W/2,-T,-W/2,0,`${fmt(T)}`,-34)}`;
+      return { scale: Math.min(1.9, 300/Math.max(L,W,H)), v:[front,top,right] };
+    }
+    if (part === "flange" || part === "gear") {
+      const D = part==="flange" ? p.outer_dia : p.module*p.teeth+2*p.module;
+      const T = p.thickness + (p.hub_h||0), b = p.bore, hd = part==="flange"?p.hole_dia:p.mount_hole_dia;
+      const bc = part==="flange"?p.bolt_circle:((p.hub_dia/2+(p.module*p.teeth/2-1.25*p.module))/2)*2;
+      const n = p.hole_count;
+      let holes="";
+      for (let i=0;i<n;i++){ const a=i*Math.PI*2/n+(part==="gear"?Math.PI/n:0);
+        const x=bc/2*Math.cos(a), y=bc/2*Math.sin(a);
+        holes+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${hd/2}" ${S}/>`
+             + cl(x-hd/2-4,y,x+hd/2+4,y)+cl(x,y-hd/2-4,x,y+hd/2+4); }
+      const front = `<circle r="${D/2}" ${S}/>${part==="flange"?`<circle r="${p.hub_dia/2}" ${S} stroke-dasharray="6 3"/>`:""}
+        ${b>0?`<circle r="${b/2}" ${S}/>`:""}
+        <circle r="${bc/2}" fill="none" stroke="#000" stroke-width=".5" stroke-dasharray="9 3 2 3"/>
+        ${holes}${cl(-D/2-14,0,D/2+14,0)}${cl(0,-D/2-14,0,D/2+14)}
+        <text x="0" y="${D/2+28}" font-family="monospace" font-size="12" text-anchor="middle">⌀${fmt(D)}</text>
+        ${b>0?`<text x="0" y="${-D/2-14}" font-family="monospace" font-size="11" text-anchor="middle">⌀${fmt(b)} BORE</text>`:""}
+        <text x="${bc/2+8}" y="${-bc/2-8}" font-family="monospace" font-size="11">⌀${fmt(hd)} (${n}×) ON ⌀${fmt(bc)} PCD</text>`;
+      const side = `<rect x="${-D/2}" y="${-p.thickness}" width="${D}" height="${p.thickness}" ${S}/>
+        ${(p.hub_h||0)>0?`<rect x="${-p.hub_dia/2}" y="${-T}" width="${p.hub_dia}" height="${p.hub_h}" ${S}/>`:""}
+        ${b>0?`<line x1="${-b/2}" y1="${-T}" x2="${-b/2}" y2="0" ${S} stroke-dasharray="6 3"/>
+              <line x1="${b/2}" y1="${-T}" x2="${b/2}" y2="0" ${S} stroke-dasharray="6 3"/>`:""}
+        ${cl(0,-T-14,0,16)}${dm(D/2,-p.thickness,D/2,0,`${fmt(p.thickness)}`,32)}`;
+      return { scale: Math.min(1.9, 300/Math.max(D,T*3)), v:[side, front, side] };
+    }
+    // shaft
+    const tot = p.l1+p.l2+p.l3, R = Math.max(p.d1,p.d2,p.d3)/2;
+    let x0 = -tot/2, segs = "";
+    [[p.d1,p.l1],[p.d2,p.l2],[p.d3,p.l3]].forEach(([d,l])=>{
+      segs += `<rect x="${x0}" y="${-d/2}" width="${l}" height="${d}" ${S}/>`; x0 += l; });
+    const front = `${segs}<rect x="${-tot/2+(p.l1-p.key_l)/2}" y="${-p.d1/2}" width="${p.key_l}" height="${p.key_d}" ${S}/>
+      ${cl(-tot/2-14,0,tot/2+14,0)}${dm(-tot/2,R+10,tot/2,R+10,`${fmt(tot)}`,26)}
+      ${dm(-tot/2,-p.d1/2,-tot/2,p.d1/2,`⌀${fmt(p.d1)}`,-42)}`;
+    const top = `${segs}${cl(-tot/2-14,0,tot/2+14,0)}`;
+    const right = `<circle r="${p.d1/2}" ${S}/><rect x="${-p.key_w/2}" y="${-p.d1/2}" width="${p.key_w}" height="${p.key_d}" ${S}/>
+      ${cl(-p.d1/2-12,0,p.d1/2+12,0)}${cl(0,-p.d1/2-12,0,p.d1/2+12)}
+      <text x="0" y="${p.d1/2+26}" font-family="monospace" font-size="12" text-anchor="middle">⌀${fmt(p.d1)}</text>`;
+    return { scale: Math.min(1.9, 300/Math.max(tot, R*4)), v:[front, top, right] };
+  }
+};
+
+/* ─────────────────────────  STATE + UI  ───────────────────────── */
+const S = { part:null, params:null, versions:[], cur:-1, mode:"prompt", drawing:false, busy:false };
+
+const PIPE = ["Analyzing input","Understanding geometry","Generating CadQuery","Building solid","Validating CAD"];
+const ACT  = ["Understanding request","Updating parameters","Regenerating CadQuery","Validating geometry","CAD updated"];
+
+const EXAMPLES = [
+  "Create a mounting bracket with a 100 mm × 60 mm base, 10 mm thickness, two vertical supports, and four 8 mm mounting holes.",
+  "Create a 32-tooth helical gear with a 2.5 mm module, 20° pressure angle, 15° helix angle, central hub, and four mounting holes.",
+  "Create a cylindrical flange with 100 mm outer diameter, 40 mm bore and six mounting holes.",
+  "Generate a stepped mechanical shaft with three diameters, a keyway and a threaded end."
+];
+const CMDS = ["Increase the thickness to 20 mm","Change the bore diameter to 25 mm","Add two more mounting holes",
+              "Make the hub 5 mm longer","Change the helix angle to 20 degrees","Add a 5 mm fillet to all outer edges"];
+
+/* highlight */
+function hl(code) {
+  const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  return esc(code)
+    .replace(/(#[^\n]*)/g, '<span class="c">$1</span>')
+    .replace(/("[^"\n]*"|'[^'\n]*')/g, '<span class="s">$1</span>')
+    .replace(/\b(import|from|as|def|for|in|return|if|else|not|and|or|None|True|False|lambda|while|range)\b/g, '<span class="k">$1</span>')
+    .replace(/\b(\d+\.?\d*)\b/g, '<span class="n">$1</span>')
+    .replace(/\.([a-zA-Z_]\w*)\s*\(/g, '.<span class="f">$1</span>(');
+}
+function setCode(code, hot) {
+  $("#src").value = code;
+  let h = hl(code);
+  if (hot && hot.length) hot.forEach(k => {
+    h = h.replace(new RegExp(`(^|\\n)(\\s*${k}\\s*=?[^\\n]*)`, "g"),
+      (m, a, b) => `${a}<span class="hot">${b}</span>`);
+  });
+  $("#hl").innerHTML = h + "\n";
+  $("#codeStat").textContent = `${code.split("\n").length} LINES · PYTHON`;
+}
+$("#src").addEventListener("input", () => {
+  $("#hl").innerHTML = hl($("#src").value) + "\n";
+  $("#reBtn").hidden = false;
+});
+
+/* toast */
+let tT;
+function toast(msg, icon) {
+  const t = $("#toast");
+  t.innerHTML = (icon || `<svg class="icn" viewBox="0 0 24 24" style="color:var(--valid)"><path d="M20 6 9 17l-5-5"/></svg>`) + `<span>${msg}</span>`;
+  t.classList.add("on"); clearTimeout(tT); tT = setTimeout(() => t.classList.remove("on"), 2100);
+}
+
+/* render helpers */
+function renderAI(part, params, conf, ocr) {
+  const P = PARTS[part];
+  const feats = P.feats(params);
+  let h = `<span class="eyebrow" style="display:block;margin-bottom:7px">Detected features</span>`;
+  feats.forEach((f, i) => {
+    h += `<div class="feat" style="animation-delay:${i * 55}ms">
+      <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>${f}</div>`;
+  });
+  h += `<div class="dims"><span class="eyebrow" style="display:block;margin-bottom:6px">Dimensions extracted</span>`;
+  P.show.forEach(k => {
+    h += `<div class="dim" data-k="${k}"><span>${P.labels[k]}</span><b>${fmt(params[k])}<small style="color:var(--ink-dim);font-weight:400"> ${P.units[k]}</small></b></div>`;
+  });
+  h += `</div>`;
+  if (ocr) h += `<div class="dims"><span class="eyebrow" style="display:block;margin-bottom:6px">OCR from drawing</span>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--ink-2);line-height:1.8">${ocr.join(" &nbsp;·&nbsp; ")}</div></div>`;
+  h += `<div class="dims" style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)">
+    <span>CLASS · ${P.tag}</span><span>CONF · ${(conf * 100).toFixed(1)}%</span></div>`;
+  $("#aiBody").innerHTML = h;
+}
+function renderStats(part, params) {
+  const st = PARTS[part].stats(params);
+  $("#mfacts").innerHTML = Object.entries(st)
+    .map(([k, v]) => `<div class="fact"><b>${v}</b><span>${k}</span></div>`).join("")
+    + `<div class="fact"><b>mm</b><span>Units</span></div>`;
+}
+function renderHistory() {
+  $("#hlist").innerHTML = S.versions.map((v, i) => `
+    <button class="ver ${i === S.cur ? "cur" : ""}" data-i="${i}">
+      <div class="vnum">${i + 1}</div>
+      <div class="vmeta"><b>Version ${i + 1}</b><span>${v.note}</span>
+        <div class="vtime">${v.time} · ${PARTS[v.part].label}</div></div>
+    </button>`).reverse().join("");
+  $$(".ver").forEach(b => b.onclick = () => restore(+b.dataset.i));
+}
+function pushVersion(note) {
+  S.versions.push({ part: S.part, params: { ...S.params }, note,
+                    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) });
+  S.cur = S.versions.length - 1; renderHistory();
+}
+function restore(i) {
+  const v = S.versions[i]; S.cur = i;
+  S.part = v.part; S.params = { ...v.params };
+  V.setModel(GEO.build(S.part, S.params)); V.fit(true);
+  setCode(CODE[S.part](S.params));
+  renderAI(S.part, S.params, 0.95); renderStats(S.part, S.params);
+  renderHistory(); toast(`Restored version ${i + 1}`);
+}
+
+/* pipeline */
+async function runPipeline(steps, hold) {
+  $("#ovEmpty").hidden = true; $("#ovErr").hidden = true; $("#minfo").hidden = true;
+  $("#ovPipe").hidden = false;
+  $("#pipe").innerHTML = steps.map((s, i) => `
+    <div class="pstep" data-i="${i}"><div class="pbullet"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><i class="pspin"></i></div>
+    <div class="plabel">${s}</div></div>${i < steps.length - 1 ? '<div class="pline"></div>' : ""}`).join("");
+  const els = $$("#pipe .pstep");
+  for (let i = 0; i < els.length; i++) {
+    els[i].classList.add("act"); await wait(hold || 700);
+    els[i].classList.remove("act"); els[i].classList.add("done");
+  }
+  await wait(280); $("#ovPipe").hidden = true;
+}
+
+/* generation */
+async function generate(text, fromDrawing) {
+  if (S.busy) return; S.busy = true;
+  $("#genBtn").disabled = true;
+  const res = fromDrawing ? AI.analyzeDrawing() : AI.interpretPrompt(text);
+  await runPipeline(PIPE, 680);
+
+  S.part = res.part; S.params = res.params;
+  V.setModel(GEO.build(S.part, S.params)); V.fit(true); V.view("iso", true);
+  setCode(CODE[S.part](S.params));
+  renderAI(S.part, S.params, res.confidence, res.ocr);
+  renderStats(S.part, S.params);
+  $("#minfo").hidden = false;
+  $("#mtitle").textContent = fromDrawing ? "Model reconstructed from drawing" : "Model generated successfully";
+  $("#cmdIn").disabled = false; $("#applyBtn").disabled = false; $("#drawBtn").disabled = false;
+  $("#genBtn").disabled = false;
+  pushVersion(fromDrawing ? "Generated from engineering drawing" : "Generated from text prompt");
+  toast("CAD generated · valid solid · no geometry errors");
+  S.busy = false;
+}
+
+/* NL edit */
+async function applyEdit(instr) {
+  if (S.busy || !S.part || !instr.trim()) return; S.busy = true;
+  $("#applyBtn").disabled = true;
+  const act = $("#act"), steps = $("#actSteps");
+  act.hidden = false; $("#actDiff").innerHTML = "";
+  steps.innerHTML = ACT.map((s, i) => `<div class="ast" data-i="${i}"><i></i>${s}</div>`
+    + (i < ACT.length - 1 ? `<span class="arrow">→</span>` : "")).join("");
+  const els = $$("#actSteps .ast");
+
+  els[0].classList.add("act"); await wait(620);
+  const r = AI.modifyModel(S.part, S.params, instr);
+  els[0].classList.replace("act", "done");
+
+  if (!r.understood) {
+    els[1].classList.add("act");
+    $("#actDiff").innerHTML = `<span class="diffpill" style="border-color:#5A4520;background:rgba(240,169,59,.12);color:var(--warn)">NO PARAMETER MATCHED</span>`;
+    await wait(1100); act.hidden = true; S.busy = false; $("#applyBtn").disabled = false;
+    toast("Could not map that to a parameter — try naming a dimension.",
+      `<svg class="icn" viewBox="0 0 24 24" style="color:var(--warn)"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>`);
+    return;
+  }
+
+  els[1].classList.add("act");
+  $("#actDiff").innerHTML = `<span class="diffpill">${r.changes.length} PARAMETER${r.changes.length > 1 ? "S" : ""} CHANGED</span>`;
+  // pulse the matching dimension rows + count values up
+  r.changes.forEach(c => {
+    const row = $(`#aiBody .dim[data-k="${c.key}"]`);
+    if (!row) return;
+    row.classList.add("pulse");
+    const b = row.querySelector("b");
+    countUp(b, c.from, c.to, c.unit, c.label);
+  });
+  await wait(720); els[1].classList.replace("act", "done");
+
+  els[2].classList.add("act"); await wait(560);
+  setCode(CODE[S.part](r.params), r.changes.map(c => c.key));
+  els[2].classList.replace("act", "done");
+
+  els[3].classList.add("act"); await wait(520);
+  const val = AI.validate(S.part, r.params);
+  if (!val.ok) {
+    els[3].classList.replace("act", "done");
+    act.hidden = true;
+    $("#errMsg").textContent = val.msg; $("#errFix").textContent = val.fix;
+    $("#ovErr").hidden = false; $("#minfo").hidden = true;
+    S.pendingFix = () => { S.params = val.apply(r.params); commitEdit(instr, r.changes); };
+    S.busy = false; $("#applyBtn").disabled = false;
+    return;
+  }
+  els[3].classList.replace("act", "done"); els[4].classList.add("act");
+
+  morphTo(r.params);
+  await wait(560);
+  els[4].classList.replace("act", "done");
+  await wait(500); act.hidden = true;
+  $$("#aiBody .dim").forEach(d => d.classList.remove("pulse"));
+  commitEdit(instr, r.changes);
+  S.busy = false; $("#applyBtn").disabled = false;
+}
+function commitEdit(instr, changes) {
+  S.params = S.params || {};
+  const note = changes && changes.length
+    ? changes.map(c => `${c.label} ${fmt(c.from)} → ${fmt(c.to)}${c.unit}`).join(", ")
+    : instr;
+  pushVersion(note);
+  $("#minfo").hidden = false; $("#ovErr").hidden = true;
+  renderStats(S.part, S.params);
+  toast(changes && changes.length ? `${changes.length} parameter${changes.length > 1 ? "s" : ""} updated` : "Model updated");
+}
+function morphTo(next) {
+  const from = { ...S.params }, t0 = performance.now(), D = 520;
+  S.params = next;
+  const keys = Object.keys(next).filter(k => typeof next[k] === "number" && next[k] !== from[k]);
+  let lastBuild = 0;
+  (function step() {
+    const now = performance.now();
+    const k = Math.min(1, (now - t0) / D);
+    const e = 1 - Math.pow(1 - k, 3);
+    // Rebuilding a 32-tooth gear + its edge overlay is not a per-frame operation;
+    // ~18 fps of geometry under a 60 fps camera reads as smooth and stays responsive.
+    if (now - lastBuild > 55 || k >= 1) {
+      lastBuild = now;
+      const mid = { ...next };
+      keys.forEach(kk => {
+        const isInt = kk.includes("count") || kk === "teeth";
+        mid[kk] = isInt ? (k < .5 ? from[kk] : next[kk]) : from[kk] + (next[kk] - from[kk]) * e;
+      });
+      V.setModel(GEO.build(S.part, mid));
+    }
+    if (k < 1) requestAnimationFrame(step);
+    else renderAI(S.part, next, 0.96);
+  })();
+}
+function countUp(el, from, to, unit, label) {
+  const t0 = performance.now(), D = 620;
+  (function step() {
+    const k = Math.min(1, (performance.now() - t0) / D), e = 1 - Math.pow(1 - k, 3);
+    const v = from + (to - from) * e;
+    el.innerHTML = `<span class="strike">${fmt(from)}</span>${fmt(Math.round(v * 100) / 100)}<small style="color:var(--ink-dim);font-weight:400"> ${unit}</small>`;
+    if (k < 1) requestAnimationFrame(step);
+  })();
+}
+
+/* ── wiring ── */
+$("#pchips").innerHTML = EXAMPLES.slice(0, 3).map(e =>
+  `<button class="chip">${e.length > 62 ? e.slice(0, 58).replace(/,?\s*\w*$/, "") + "…" : e}</button>`).join("");
+$$("#pchips .chip").forEach((b, i) => b.onclick = () => { $("#prompt").value = EXAMPLES[i]; $("#prompt").focus(); });
+
+$("#cchips").innerHTML = CMDS.slice(0, 4).map(c => `<button class="chip">${c}</button>`).join("");
+$$("#cchips .chip").forEach((b, i) => b.onclick = () => { $("#cmdIn").value = CMDS[i]; $("#cmdIn").focus(); });
+
+const SAMP = {
+  bracket:`<svg viewBox="0 0 60 34"><rect x="6" y="22" width="48" height="7"/><rect x="6" y="7" width="6" height="15"/><rect x="48" y="7" width="6" height="15"/><circle cx="22" cy="25.5" r="2"/><circle cx="38" cy="25.5" r="2"/></svg>`,
+  gear:`<svg viewBox="0 0 60 34"><circle cx="30" cy="17" r="12"/><circle cx="30" cy="17" r="4"/><path d="M30 5v-3M30 29v3M18 17h-3M45 17h3M21.5 8.5l-2-2M40.5 25.5l2 2M40.5 8.5l2-2M21.5 25.5l-2 2"/></svg>`,
+  flange:`<svg viewBox="0 0 60 34"><circle cx="30" cy="17" r="13"/><circle cx="30" cy="17" r="5"/><circle cx="30" cy="7" r="1.8"/><circle cx="38.7" cy="12" r="1.8"/><circle cx="38.7" cy="22" r="1.8"/><circle cx="30" cy="27" r="1.8"/><circle cx="21.3" cy="22" r="1.8"/><circle cx="21.3" cy="12" r="1.8"/></svg>`,
+  shaft:`<svg viewBox="0 0 60 34"><rect x="4" y="13" width="18" height="8"/><rect x="22" y="10" width="16" height="14"/><rect x="38" y="14" width="18" height="6"/><path d="M9 13h8"/><path d="M41 14v6M45 14v6M49 14v6M53 14v6"/></svg>`
+};
+$("#samples").innerHTML = Object.entries(PARTS).map(([k, P]) => {
+  const sub = { bracket:"100 × 60 × 10", gear:"32T · m2.5 · 15°", flange:"Ø100 · 6 holes", shaft:"3 steps · keyway" }[k];
+  return `<button class="sample" data-p="${k}">${SAMP[k]}<b>${P.label}</b><small>${sub}</small></button>`;
+}).join("");
+$$(".sample").forEach(b => b.onclick = () => {
+  const k = b.dataset.p;
+  setTab("prompt");
+  $("#prompt").value = EXAMPLES[["bracket","gear","flange","shaft"].indexOf(k)];
+  generate($("#prompt").value, false);
+});
+
+function setTab(m) {
+  S.mode = m;
+  $$(".tab").forEach(t => t.setAttribute("aria-selected", t.dataset.mode === m));
+  $("#fDraw").hidden = m === "prompt";
+  $("#fPrompt").hidden = m === "drawing";
+}
+$$(".tab").forEach(t => t.onclick = () => setTab(t.dataset.mode));
+
+const EXSVG = `<svg viewBox="0 0 120 90" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="90" fill="#fff"/><g stroke="#000" fill="none" stroke-width="1"><rect x="20" y="22" width="80" height="40"/><circle cx="34" cy="34" r="4"/><circle cx="86" cy="34" r="4"/><circle cx="34" cy="50" r="4"/><circle cx="86" cy="50" r="4"/></g><g stroke="#000" stroke-width=".5"><path d="M20 72h80M20 69v6M100 69v6"/></g><text x="60" y="82" font-size="7" font-family="monospace" text-anchor="middle">100.0</text><text x="60" y="16" font-size="6" font-family="monospace" text-anchor="middle">⌀8.0 (4×)</text></svg>`;
+function loadDrawing(name, svg) {
+  $("#fDraw").innerHTML = `<span class="eyebrow" style="display:block;margin-bottom:7px">Engineering drawing</span>
+    <div class="thumb"><div class="thumb-img">${svg}</div>
+      <div class="thumb-meta"><b>${name}</b>
+        <span><svg class="icn" viewBox="0 0 24 24" style="width:10px;height:10px"><path d="M20 6 9 17l-5-5"/></svg>DRAWING ANALYZED</span></div>
+      <button class="x" id="rmDraw"><svg class="icn" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
+  $("#rmDraw").onclick = () => location.reload();
+  if (S.mode === "prompt") setTab("drawing");
+}
+$("#exDraw").onclick = () => { loadDrawing("BRK-1042_rev-C.pdf", EXSVG); toast("Drawing analyzed · 5 dimensions extracted"); };
+$("#drop").onclick = () => $("#exDraw").click();
+["dragover","dragenter"].forEach(e => $("#drop").addEventListener(e, ev => { ev.preventDefault(); $("#drop").classList.add("over"); }));
+["dragleave","drop"].forEach(e => $("#drop").addEventListener(e, ev => { ev.preventDefault(); $("#drop").classList.remove("over"); }));
+$("#drop").addEventListener("drop", ev => {
+  const f = ev.dataTransfer.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => loadDrawing(f.name, `<img src="${r.result}" alt=""/>`);
+  if (f.type.startsWith("image/")) r.readAsDataURL(f); else loadDrawing(f.name, EXSVG);
+  toast("Drawing analyzed · 5 dimensions extracted");
+});
+
+$("#genBtn").onclick = () => {
+  const fromDraw = S.mode === "drawing" || (S.mode === "both" && !$("#prompt").value.trim());
+  if (S.mode === "drawing" && $("#fDraw").querySelector(".drop")) { toast("Upload a drawing first",
+    `<svg class="icn" viewBox="0 0 24 24" style="color:var(--warn)"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>`); return; }
+  if (!fromDraw && !$("#prompt").value.trim()) { $("#prompt").focus(); return; }
+  generate($("#prompt").value, fromDraw);
+};
+$("#e1").onclick = () => { setTab("drawing"); $("#exDraw").click(); };
+$("#e2").onclick = () => { setTab("prompt"); $("#prompt").focus(); };
+
+$$(".vt[data-view]").forEach(b => b.onclick = () => {
+  $$(".vt[data-view]").forEach(x => x.classList.remove("on")); b.classList.add("on");
+  V.view(b.dataset.view, true);
+});
+$("#fitBtn").onclick = () => V.fit(true);
+$("#wireBtn").onclick = () => $("#wireBtn").classList.toggle("on", V.toggleWire());
+$("#secBtn").onclick = () => $("#secBtn").classList.toggle("on", V.toggleSection());
+$("#spinBtn").classList.add("on");
+$("#spinBtn").onclick = () => { V.spin = !V.spin; $("#spinBtn").classList.toggle("on", V.spin); };
+
+$("#applyBtn").onclick = () => { applyEdit($("#cmdIn").value); $("#cmdIn").value = ""; };
+$("#cmdIn").addEventListener("keydown", e => { if (e.key === "Enter") $("#applyBtn").click(); });
+$("#micBtn").onclick = () => toast("Voice input is not enabled in this build",
+  `<svg class="icn" viewBox="0 0 24 24" style="color:var(--warn)"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>`);
+
+$("#copyBtn").onclick = () => { navigator.clipboard.writeText($("#src").value); toast("CadQuery copied to clipboard"); };
+$("#dlBtn").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([$("#src").value], { type: "text/x-python" }));
+  a.download = `${S.part || "model"}.py`; a.click(); toast("Downloaded .py");
+};
+$("#runBtn").onclick = $("#reBtn").onclick = async () => {
+  if (!S.part) return;
+  // Re-parse the parameter header — the code panel is the source of truth.
+  const src = $("#src").value, next = { ...S.params };
+  Object.keys(next).forEach(k => {
+    const m = src.match(new RegExp(`^\\s*${k}\\s*=\\s*([\\d.]+)`, "m"));
+    if (m) next[k] = parseFloat(m[1]);
+  });
+  const m2 = src.match(/^\s*d1,\s*l1\s*=\s*([\d.]+),\s*([\d.]+)/m);
+  if (m2) { next.d1 = parseFloat(m2[1]); next.l1 = parseFloat(m2[2]); }
+  $("#reBtn").hidden = true;
+  await runPipeline(["Parsing CadQuery", "Building solid", "Validating CAD"], 480);
+  morphTo(next); renderStats(S.part, next); $("#minfo").hidden = false;
+  pushVersion("Edited CadQuery source"); toast("Solid rebuilt from edited source");
+};
+
+$("#fixBtn").onclick = () => { if (S.pendingFix) { S.pendingFix(); S.pendingFix = null;
+  V.setModel(GEO.build(S.part, S.params)); $("#ovErr").hidden = true; $("#minfo").hidden = false;
+  setCode(CODE[S.part](S.params)); renderAI(S.part, S.params, 0.94); toast("Fillet clamped · solid validated"); } };
+$("#regenBtn").onclick = () => { $("#ovErr").hidden = true; $("#minfo").hidden = false; };
+
+$("#histBtn").onclick = () => $("#hist").classList.toggle("open");
+$("#histClose").onclick = () => $("#hist").classList.remove("open");
+$("#setBtn").onclick = () => {
+  const cur = $("#aiModel").textContent;
+  const opts = ["QWEN2.5-VL-7B", "CLAUDE SONNET 4.6", "CADRILLE-2B", "HF · CODELLAMA-13B"];
+  const nxt = opts[(opts.indexOf(cur) + 1) % opts.length];
+  $("#aiModel").textContent = nxt;
+  $("#enginePill").textContent = `Text2CAD Engine v0.1 · ${nxt.split(" ")[0].toLowerCase()}`;
+  toast(`Inference provider switched to ${nxt}`);
+};
+
+/* drawing sheet */
+$("#drawBtn").onclick = async () => {
+  if (!S.part) return;
+  V.view("iso", false); V.spin = false; $("#spinBtn").classList.remove("on");
+  await wait(60);
+  const iso = V.snapshot(true);
+  $("#paper").innerHTML = DRAW.sheet(S.part, S.params, iso);
+  $("#sheet").classList.add("on"); S.drawing = true;
+};
+$("#back3d").onclick = () => { $("#sheet").classList.remove("on"); S.drawing = false; };
+$("#expPng").onclick = () => {
+  const svg = $("#paper").innerHTML;
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas"); c.width = 2240; c.height = 1560;
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(img, 0, 0, c.width, c.height);
+    const a = document.createElement("a"); a.href = c.toDataURL("image/png");
+    a.download = `${S.part}_drawing.png`; a.click(); toast("Drawing exported as PNG");
+  };
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+};
+$("#expPdf").onclick = () => { toast("Opening print dialog — choose “Save as PDF”"); setTimeout(() => print(), 500); };
+
+/* ─────────────────────────  AUTOPILOT  ───────────────────────── */
+async function type(el, text, speed) {
+  el.focus(); el.value = "";
+  for (let i = 0; i < text.length; i++) {
+    el.value += text[i];
+    await wait(text[i] === " " ? (speed || 17) * 0.6 : (speed || 17) * (0.7 + Math.random() * 0.9));
+  }
+  await wait(320);
+}
+let autoRunning = false;
+async function autopilot() {
+  if (autoRunning) { location.reload(); return; }
+  autoRunning = true;
+  const b = $("#autoBtn"); b.classList.add("running");
+  b.innerHTML = `<svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="6" y="5" width="4" height="14" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" fill="currentColor" stroke="none"/></svg>Stop`;
+  try {
+    // ── Act 1 · text → CAD
+    setTab("prompt");
+    await wait(500);
+    await type($("#prompt"), EXAMPLES[0], 15);
+    $("#genBtn").click(); await wait(4600);
+    V.spin = true; $("#spinBtn").classList.add("on");
+    await wait(2400);
+
+    // ── Act 2 · natural-language edit
+    await type($("#cmdIn"), "Increase the thickness to 15 mm and make all holes 10 mm diameter", 15);
+    $("#applyBtn").click(); await wait(4200);
+    await wait(1600);
+
+    // ── Act 3 · a second, structural edit
+    await type($("#cmdIn"), "Add two more mounting holes", 15);
+    $("#applyBtn").click(); await wait(4200);
+
+    // ── Act 4 · history
+    $("#hist").classList.add("open"); await wait(2100);
+    $("#hist").classList.remove("open"); await wait(600);
+
+    // ── Act 5 · drawing
+    $("#drawBtn").click(); await wait(3600);
+    $("#back3d").click(); await wait(700);
+    V.spin = true; $("#spinBtn").classList.add("on");
+    V.view("iso", true);
+    toast("Demo complete — from engineering intent to parametric CAD");
+  } finally {
+    autoRunning = false; b.classList.remove("running");
+    b.innerHTML = `<svg class="icn" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 4l13 8-13 8z" fill="currentColor" stroke="none"/></svg>Run demo`;
+  }
+}
+$("#autoBtn").onclick = autopilot;
+
+/* keyboard */
+addEventListener("keydown", e => {
+  if (e.target.matches("input,textarea")) return;
+  const k = e.key.toLowerCase();
+  if (k === "1") V.view("iso", true); if (k === "2") V.view("front", true);
+  if (k === "3") V.view("top", true); if (k === "4") V.view("right", true);
+  if (k === "f") V.fit(true);
+  if (k === "w") $("#wireBtn").click();
+  if (k === "s") $("#secBtn").click();
+  if (k === "h") $("#histBtn").click();
+  if (k === " ") { e.preventDefault(); autopilot(); }
+});
+
+/* boot */
+setTab("prompt");
+$("#prompt").value = "";
+V.fit(false);
+</script>
+</body>
+</html>
