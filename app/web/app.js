@@ -734,10 +734,16 @@ function applyProvider(providerId) {
   $("#genModels").innerHTML = models.map(m => `<option value="${esc(m)}">`).join("");
   $("#judgeModels").innerHTML = $("#genModels").innerHTML;
 
-  // Prefer the provider's own defaults; otherwise the first model it reports.
-  $("#optGenModel").value = provider.default_generation_model || models[0] || "";
+  // Use the provider's own defaults where it declares them. Where it does
+  // not — a gateway offering hundreds of models — leave the field empty and
+  // let the datalist suggest, rather than picking an arbitrary first entry
+  // and implying it was chosen for the job.
+  $("#optGenModel").value = provider.default_generation_model || "";
   $("#optJudgeModel").value = provider.default_judge_model
-    || provider.default_generation_model || models[0] || "";
+    || provider.default_generation_model || "";
+  $("#optGenModel").placeholder = models.length
+    ? `model id (${models.length} available)` : "model id";
+  $("#optJudgeModel").placeholder = $("#optGenModel").placeholder;
 
   const needsSetup = !provider.ready;
   $("#keyRow").hidden = !(needsSetup || provider.key_from_session);

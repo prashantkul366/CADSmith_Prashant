@@ -142,6 +142,9 @@ def main() -> int:
         check("the key field is cleared after use",
               page.locator("#providerKey").input_value() == "")
 
+        check("a gateway with no declared default leaves the model empty",
+              page.locator("#optGenModel").input_value() == "",
+              page.locator("#optGenModel").input_value())
         page.fill("#optGenModel", "same-model")
         page.fill("#optJudgeModel", "same-model")
         page.wait_for_timeout(400)
