@@ -26,13 +26,27 @@ scripts.
 
 ## Setup
 
+macOS and Linux:
+
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r app/requirements-app.txt
+.venv/bin/python -m pip install -r app/requirements-app.txt
+```
+
+Windows PowerShell — note `python`, not `python3`, and `Scripts\` rather than
+`bin/`:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r app\requirements-app.txt
 ```
 
 CadQuery 2.8 and VTK install as ordinary pip wheels, so the conda environment
-the main README describes is no longer required.
+the main README describes is no longer required. Tested on Python 3.11.
+
+**On Windows, keep the checkout out of OneDrive.** `.venv` runs to several
+hundred megabytes, and syncing it is slow and can lock files mid-install.
+Something like `C:\dev\cadsmith_prashant_demo` avoids it.
 
 On **headless Linux**, VTK imports fine and then fails at render time with no GL
 backend, which silently costs you the vision Judge. Install a software
@@ -56,14 +70,24 @@ echo "OPENAI_API_KEY=sk-..." > .env
 
 ## Running
 
+macOS and Linux:
+
 ```bash
 ./app/run_app.sh              # http://127.0.0.1:8000
 PORT=9000 ./app/run_app.sh    # somewhere else
 ./app/run_app.sh --reload     # reload on source changes
 ```
 
-`run_app.sh` reads `.env`, so the health check reports the truth before the
-first run starts.
+Windows PowerShell:
+
+```powershell
+.\app\run_app.ps1
+.\app\run_app.ps1 -Port 9000
+.\app\run_app.ps1 -Reload
+```
+
+Both read `.env`, so the health check reports the truth before the first run
+starts.
 
 ## Model backends
 
