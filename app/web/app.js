@@ -27,6 +27,8 @@ const S = {
   converged: false,
   replay: false,
   seq: 0,          // next unseen event sequence number
+  providers: [],
+  provider: null,
   editing: false,
 };
 
@@ -122,11 +124,13 @@ async function loadHealth() {
       <span>${esc(check.detail)}</span>
     </div>`).join("");
 
-  if (!checks.api_key.ok) {
+  if (!checks.model_backend.ok) {
     $("#keyBanner").hidden = false;
     $("#keyBannerText").textContent =
-      "No ANTHROPIC_API_KEY, so the agents cannot run. Past runs still replay in full.";
-    $("#genBtn").disabled = true;
+      "No model backend configured, so the agents cannot run. Choose a "
+      + "provider below, or replay a recorded run.";
+  } else {
+    $("#keyBanner").hidden = true;
   }
   if (!checks.vision_render.ok) {
     const toggle = $("#optVision");
@@ -233,6 +237,9 @@ function handleEvent(event) {
     addVersion(data);
   }
   if (phase === "job") {
+    if (status === "started" && data.llm) {
+      setModelLabels(data.llm.generation_model, data.llm.judge_model);
+    }
     if (status === "ok") finishRun(data);
     if (status === "failed") failRun(message);
   }
@@ -370,7 +377,8 @@ function renderValidation(version) {
   if (judged) {
     heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
     body = version.judge_feedback || version.feedback_text || "";
-    attribution = "CLAUDE OPUS · " + (version.has_render
+    const judgeModel = (S.judgeModel || "").toUpperCase() || "JUDGE MODEL";
+    attribution = judgeModel + " · " + (version.has_render
       ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY");
   } else {
     heading = passed ? "Rebuilt and checked by the kernel"
@@ -435,6 +443,9 @@ async function generate() {
   const options = {
     max_iterations: +$("#optIters").value,
     use_vision: $("#optVision").classList.contains("on"),
+    provider: $("#optProvider").value,
+    generation_model: $("#optGenModel").value.trim(),
+    judge_model: $("#optJudgeModel").value.trim(),
   };
 
   try {
@@ -570,6 +581,13 @@ async function openJob(jobId) {
     .filter(e => e.phase === "log")
     .forEach(e => appendLog(e.message));
 
+  const started = (state.events || []).find(
+    e => e.phase === "job" && e.status === "started" && e.data && e.data.llm);
+  if (started) {
+    setModelLabels(started.data.llm.generation_model,
+                   started.data.llm.judge_model);
+  }
+
   renderPlan(job.design_plan);
   renderIterations();
   $("#hist").classList.remove("open");
@@ -674,6 +692,157 @@ addEventListener("keydown", e => {
 
 
 
+
+
+/* ═══════════════════════ model backend ═══════════════════════ */
+
+/* The pipeline reaches every model through one function in autofab.agents,
+   so the whole thing can be pointed at OpenAI, a local Ollama, or anything
+   else speaking the same API. Keys entered here are held in server memory
+   for this process only — never written to disk and never sent back. */
+
+async function loadProviders() {
+  let payload;
+  try { payload = await API.providers(true); } catch (_) { return; }
+
+  S.providers = payload.providers || [];
+  const select = $("#optProvider");
+  select.innerHTML = S.providers.map(p => {
+    const state = p.ready ? "" : " — needs setup";
+    return `<option value="${esc(p.id)}">${esc(p.label)}${state}</option>`;
+  }).join("");
+
+  const preferred = S.providers.find(p => p.id === payload.default && p.ready)
+    || S.providers.find(p => p.ready)
+    || S.providers[0];
+  if (preferred) {
+    select.value = preferred.id;
+    applyProvider(preferred.id);
+  }
+}
+
+function currentProvider() {
+  return S.providers.find(p => p.id === $("#optProvider").value) || null;
+}
+
+function applyProvider(providerId) {
+  const provider = S.providers.find(p => p.id === providerId);
+  if (!provider) return;
+  S.provider = provider;
+
+  const models = provider.models || [];
+  $("#genModels").innerHTML = models.map(m => `<option value="${esc(m)}">`).join("");
+  $("#judgeModels").innerHTML = $("#genModels").innerHTML;
+
+  // Prefer the provider's own defaults; otherwise the first model it reports.
+  $("#optGenModel").value = provider.default_generation_model || models[0] || "";
+  $("#optJudgeModel").value = provider.default_judge_model
+    || provider.default_generation_model || models[0] || "";
+
+  const needsSetup = !provider.ready;
+  $("#keyRow").hidden = !(needsSetup || provider.key_from_session);
+  $("#providerBase").hidden = provider.id !== "custom";
+  $("#providerBase").value = provider.base_url || "";
+  $("#providerKey").placeholder = provider.needs_key
+    ? "API key (memory only)" : "API key (not required)";
+
+  setModelLabels($("#optGenModel").value, $("#optJudgeModel").value);
+  updateProviderNote();
+  updateGenerateAvailability();
+}
+
+/* Name the models that actually did the work, rather than the ones the
+   pipeline happens to default to. */
+function setModelLabels(generation, judge) {
+  S.judgeModel = judge || "";
+  const short = name => (name || "").split("/").pop().toUpperCase() || "—";
+  $("#genModelLabel").textContent = `PLANNER · ${short(generation)}`;
+  $("#judgeModelLabel").textContent = `JUDGE · ${short(judge)}`;
+}
+
+function updateProviderNote() {
+  const provider = S.provider;
+  const note = $("#providerNote");
+  if (!provider) { note.textContent = ""; return; }
+
+  const generation = $("#optGenModel").value.trim();
+  const judge = $("#optJudgeModel").value.trim();
+
+  if (!provider.ready) {
+    note.className = "optnote warn";
+    note.textContent = provider.hint + ".";
+    return;
+  }
+  if (!generation || !judge) {
+    note.className = "optnote warn";
+    note.textContent = "Choose a model for both roles.";
+    return;
+  }
+  if (generation === judge) {
+    // The pipeline judges with a separate, stronger model on purpose.
+    note.className = "optnote warn";
+    note.textContent =
+      "Both roles use the same model, so the Judge grades its own work. "
+      + "Pick a stronger judge model for an independent check.";
+    return;
+  }
+  note.className = "optnote ok";
+  note.textContent = provider.local
+    ? "Running locally — nothing leaves this machine."
+    : "Ready.";
+}
+
+function updateGenerateAvailability() {
+  const provider = S.provider;
+  const kernelOk = !!(S.health && S.health.checks
+                      && S.health.checks.cadquery.ok);
+  const ready = !!(provider && provider.ready
+                   && $("#optGenModel").value.trim()
+                   && $("#optJudgeModel").value.trim());
+  $("#genBtn").disabled = !(kernelOk && ready);
+}
+
+async function saveProviderKey() {
+  const provider = currentProvider();
+  if (!provider) return;
+
+  const button = $("#saveKeyBtn");
+  button.disabled = true;
+  try {
+    const updated = await API.setProviderKey(
+      provider.id, $("#providerKey").value.trim(),
+      $("#providerBase").value.trim());
+    Object.assign(provider, updated);
+    $("#providerKey").value = "";
+    applyProvider(provider.id);
+
+    const select = $("#optProvider");
+    const option = [...select.options].find(o => o.value === provider.id);
+    if (option) option.textContent =
+      provider.label + (provider.ready ? "" : " — needs setup");
+
+    toast(provider.ready ? `${provider.label} is ready`
+                         : `${provider.label} still needs setup`);
+    loadHealth();
+  } catch (error) {
+    warnToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("#optProvider").onchange = e => applyProvider(e.target.value);
+function onModelEdited() {
+  setModelLabels($("#optGenModel").value, $("#optJudgeModel").value);
+  updateProviderNote();
+  updateGenerateAvailability();
+}
+$("#optGenModel").oninput = onModelEdited;
+$("#optJudgeModel").oninput = onModelEdited;
+$("#saveKeyBtn").onclick = saveProviderKey;
+$("#providerKey").addEventListener("keydown", e => {
+  if (e.key === "Enter") saveProviderKey();
+});
 
 /* ═══════════════════════ replay ═══════════════════════ */
 
@@ -913,6 +1082,7 @@ $("#expPng").onclick = exportDrawingPng;
 
 (async function boot() {
   await loadHealth();
+  await loadProviders();
   await loadExamples();
   await loadHistory();
   setCode("");

@@ -37,6 +37,8 @@ from autofab.executor import Executor, ExecutionResult
 from autofab.pipeline import Pipeline
 from autofab.validator import Validator, ValidationReport
 
+from .providers import LLMConfig, build_client
+
 from .events import (
     EventSink,
     PHASE_CODE,
@@ -78,6 +80,9 @@ class RunContext:
     #: API error silently converge a part.  The app surfaces it instead.
     judge_error: Optional[str] = None
     versions: list[dict] = field(default_factory=list)
+    #: Which model backend this job runs against. ``None`` means the stock
+    #: Anthropic client, exactly as the published pipeline uses.
+    llm: Optional[LLMConfig] = None
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -242,6 +247,23 @@ def install_agent_hooks() -> None:
 
     evaluate_geometry._cadsmith_wrapped = True  # type: ignore[attr-defined]
     agents.evaluate_geometry = evaluate_geometry
+
+    # Every agent reaches the network through this one function, so replacing
+    # it retargets the whole pipeline. With no context - or a context that did
+    # not choose a provider - the original is used untouched.
+    _orig_get_client = agents._get_client
+
+    def _get_client():
+        ctx = _current.get()
+        if ctx is None or ctx.llm is None:
+            return _orig_get_client()
+        return build_client(
+            ctx.llm,
+            on_note=lambda message: ctx.emit(PHASE_LOG, STATUS_INFO, message),
+        )
+
+    _get_client._cadsmith_wrapped = True  # type: ignore[attr-defined]
+    agents._get_client = _get_client
 
     _HOOKS_INSTALLED = True
 

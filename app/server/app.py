@@ -26,6 +26,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 
 from .drawing import ensure_sheet
+from . import providers
 from .jobs import JobManager, JobOptions, STATUS_DONE, STATUS_ERROR
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -154,12 +155,13 @@ def _health() -> dict:
 
     checks["vision_render"] = _probe_offscreen_render()
 
-    key = os.getenv("ANTHROPIC_API_KEY", "")
-    checks["api_key"] = {
-        "ok": bool(key),
-        "detail": "ANTHROPIC_API_KEY is set" if key else
-                  "ANTHROPIC_API_KEY is not set - live generation is unavailable "
-                  "(recorded runs still replay).",
+    ready = [p for p in providers.status() if p["ready"]]
+    checks["model_backend"] = {
+        "ok": bool(ready),
+        "detail": ("ready: " + ", ".join(p["label"] for p in ready)) if ready
+                  else "No model backend configured - set a provider key in "
+                       ".env or paste one in the app. Recorded runs still "
+                       "replay, and parameter edits still rebuild.",
     }
 
     try:
@@ -172,8 +174,9 @@ def _health() -> dict:
 
     return {
         "ok": all(c["ok"] for c in checks.values()),
-        "can_generate": checks["cadquery"]["ok"] and checks["api_key"]["ok"],
+        "can_generate": checks["cadquery"]["ok"] and checks["model_backend"]["ok"],
         "checks": checks,
+        "providers": providers.status(),
     }
 
 
@@ -230,13 +233,10 @@ async def create_job(request: Request) -> JSONResponse:
             detail="CadQuery is not available in this environment: "
                    + status["checks"]["cadquery"]["detail"],
         )
-    if not status["checks"]["api_key"]["ok"]:
-        raise HTTPException(
-            status_code=503,
-            detail="ANTHROPIC_API_KEY is not set, so the agents cannot run.",
-        )
-
     options = JobOptions.from_dict(body.get("options"))
+    issues = providers.problems(options.llm_config())
+    if issues:
+        raise HTTPException(status_code=503, detail=" ".join(issues))
     if options.use_vision and not status["checks"]["vision_render"]["ok"]:
         options.use_vision = False  # degrade rather than fail mid-run
 
@@ -303,6 +303,45 @@ async def replay_job(job_id: str, request: Request) -> JSONResponse:
 
     job = manager.create_replay(source, speed=speed)
     return JSONResponse({"job": job.summary()}, status_code=201)
+
+
+@app.get("/api/providers")
+def list_providers(models: bool = False) -> JSONResponse:
+    """Which model backends are available, and what they serve.
+
+    Model lists are fetched from the provider itself rather than shipped as a
+    guess, so a local Ollama reports what is actually pulled.
+    """
+    entries = providers.status()
+    if models:
+        for entry in entries:
+            if entry["ready"]:
+                entry["models"] = providers.list_models(entry["id"])
+    return JSONResponse({"providers": entries,
+                         "default": providers.DEFAULT_PROVIDER})
+
+
+@app.post("/api/providers/{provider_id}/key")
+async def set_provider_key(provider_id: str, request: Request) -> JSONResponse:
+    """Hold a key for this server process only.
+
+    Never written to disk, never logged, and never returned to the browser -
+    the response says only whether the provider is now usable.
+    """
+    if provider_id not in providers.BUILTIN:
+        raise HTTPException(status_code=404, detail="Unknown provider.")
+
+    body = await _json_body(request)
+    api_key = (body.get("api_key") or "").strip()
+    base_url = (body.get("base_url") or "").strip()
+    if len(api_key) > 500 or len(base_url) > 500:
+        raise HTTPException(status_code=400, detail="Value is too long.")
+
+    providers.set_session_key(provider_id, api_key=api_key, base_url=base_url)
+
+    entry = next(p for p in providers.status() if p["id"] == provider_id)
+    entry["models"] = providers.list_models(provider_id) if entry["ready"] else []
+    return JSONResponse({"provider": entry})
 
 
 @app.get("/api/jobs")

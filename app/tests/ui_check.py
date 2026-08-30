@@ -92,6 +92,71 @@ def main() -> int:
               f"{page.locator('#samples .sample').count()} prompts")
         page.screenshot(path=str(out / "01-empty.png"))
 
+        print("\nModel backend picker")
+        options = page.evaluate(
+            "[...document.querySelectorAll('#optProvider option')].map(o => o.value)")
+        for wanted in ("anthropic", "openai", "ollama", "lmstudio", "custom"):
+            check(f"{wanted} offered", wanted in options, str(options))
+        check("a provider is selected", bool(page.locator("#optProvider").input_value()))
+        check("unconfigured providers say so",
+              "needs setup" in page.evaluate(
+                  "[...document.querySelectorAll('#optProvider option')]"
+                  ".map(o => o.textContent).join('|')"))
+
+        page.select_option("#optProvider", "ollama")
+        page.wait_for_timeout(500)
+        note = page.locator("#providerNote").inner_text()
+        check("an unreachable local provider is reported honestly",
+              "Nothing is listening" in note, note[:70])
+        check("generate is blocked with no usable backend",
+              page.locator("#genBtn").is_disabled())
+        check("the key field appears when setup is needed",
+              page.locator("#keyRow").is_visible())
+
+        page.select_option("#optProvider", "custom")
+        page.wait_for_timeout(400)
+        check("a custom backend exposes its base URL",
+              page.locator("#providerBase").is_visible())
+
+        page.select_option("#optProvider", "anthropic")
+        page.wait_for_timeout(400)
+        check("model roles are prefilled per provider",
+              page.locator("#optGenModel").input_value()
+              != page.locator("#optJudgeModel").input_value(),
+              f'{page.locator("#optGenModel").input_value()} / '
+              f'{page.locator("#optJudgeModel").input_value()}')
+
+        # Configure a backend through the UI, which is also how a key gets in.
+        page.select_option("#optProvider", "custom")
+        page.wait_for_timeout(400)
+        page.fill("#providerBase", "http://127.0.0.1:9/v1")
+        page.fill("#providerKey", "ui-entered-key")
+        page.click("#saveKeyBtn")
+        page.wait_for_timeout(1200)
+        check("the provider becomes usable once configured",
+              "needs setup" not in page.evaluate(
+                  "document.querySelector('#optProvider')"
+                  ".selectedOptions[0].textContent"),
+              page.evaluate("document.querySelector('#optProvider')"
+                            ".selectedOptions[0].textContent"))
+        check("the key field is cleared after use",
+              page.locator("#providerKey").input_value() == "")
+
+        page.fill("#optGenModel", "same-model")
+        page.fill("#optJudgeModel", "same-model")
+        page.wait_for_timeout(400)
+        check("using one model for both roles is flagged",
+              "grades its own work" in page.locator("#providerNote").inner_text(),
+              page.locator("#providerNote").inner_text()[:60])
+        page.fill("#optJudgeModel", "stronger-model")
+        page.wait_for_timeout(400)
+        check("a distinct judge model clears the warning",
+              "grades its own work" not in page.locator("#providerNote").inner_text())
+        check("the pane header names the judge model",
+              "STRONGER-MODEL" in page.locator("#judgeModelLabel").inner_text(),
+              page.locator("#judgeModelLabel").inner_text())
+        page.screenshot(path=str(out / "12-providers.png"))
+
         print("\nEnvironment panel")
         page.click("#healthChip")
         page.wait_for_timeout(400)

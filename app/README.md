@@ -45,10 +45,13 @@ sudo apt-get install libosmesa6
 macOS and Windows need nothing extra. The app tells you either way — see
 Diagnostics below.
 
-Set your API key:
+Set a key for whichever provider you want (see **Model backends** below):
 
 ```bash
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+# or
+echo "OPENAI_API_KEY=sk-..." > .env
+# or run a local model and set nothing at all
 ```
 
 ## Running
@@ -62,9 +65,48 @@ PORT=9000 ./app/run_app.sh    # somewhere else
 `run_app.sh` reads `.env`, so the health check reports the truth before the
 first run starts.
 
-## What you can do without an API key
+## Model backends
 
-The agents need one; the CAD kernel does not. Without a key you can still:
+`autofab/agents.py` reaches the network through one function, and every agent
+goes through it, so the whole pipeline can be pointed elsewhere without
+touching the research code. Pick a provider in the app's left panel.
+
+| Provider | Needs | Notes |
+|---|---|---|
+| **Anthropic** | `ANTHROPIC_API_KEY` | Default. Uses the real SDK, so this path behaves exactly as the published pipeline does. |
+| **OpenAI** | `OPENAI_API_KEY` | |
+| **Ollama** | Ollama running | Local Llama, Qwen, Mistral… `OLLAMA_BASE_URL` to move it off `localhost:11434`. |
+| **LM Studio** | its local server | `LMSTUDIO_BASE_URL` to relocate. |
+| **Custom** | `CADSMITH_LLM_BASE_URL` | Anything OpenAI-compatible: vLLM, llama.cpp, Together, Groq, OpenRouter. `CADSMITH_LLM_API_KEY` if it wants one. |
+
+Everything except Anthropic goes through one OpenAI-compatible adapter, so a
+new endpoint usually needs only a base URL.
+
+**Keys** come from `.env`, or you can paste one into the app for the current
+server process. A pasted key is held in memory only — never written to disk,
+never logged, never sent back to the browser. Restarting clears it.
+
+**Model lists come from the provider**, not from a hardcoded table, so a local
+Ollama offers the models you have actually pulled.
+
+**Generation and judging are configured separately**, and may be different
+models or different providers — a local Llama writing CadQuery with GPT-4o
+judging is a valid setup. The pipeline judges with a stronger, independent
+model on purpose; point both roles at the same model and the app says so,
+because that reintroduces the self-confirmation the design avoids.
+
+Two things degrade rather than fail. A model that cannot accept images gets
+retried without the render, and the Judge is labelled as having run on kernel
+metrics alone. A model that wraps its JSON in prose — common with smaller
+local ones — has the object extracted, since the Planner and Judge parse
+strictly.
+
+Local providers are probed for reachability, so "ready" means something is
+actually listening rather than merely that no key is required.
+
+## What you can do without any model backend
+
+The agents need one; the CAD kernel does not. Without one you can still:
 
 - **Replay a recorded run** — the events a real run produced, against the
   artifacts it exported. Real geometry, real source, real Judge text; only the
@@ -114,9 +156,12 @@ arbitrarily.
 **Drawing.** Front, top, right and isometric views projected from the exported
 STEP solid, with hidden lines resolved and all four at a common scale.
 
+**Choose a backend.** Provider, generation model and judge model sit under the
+run options. See **Model backends** above.
+
 **Diagnostics.** The chip in the header reports CadQuery, offscreen rendering,
-the API key and the metrics stack. Click it for detail. A demo that will not
-work says so before you start.
+the model backend and the metrics stack. Click it for detail. A demo that will
+not work says so before you start.
 
 ## Layout
 
@@ -128,6 +173,7 @@ app/
     events.py      append-only event log, mirrored to events.jsonl
     instrument.py  makes the stock pipeline observable, without editing it
     edits.py       parameter-patch interpretation, with the Refiner as fallback
+    providers.py   Anthropic, OpenAI, Ollama and any OpenAI-compatible backend
     drawing.py     orthographic projections composed into a sheet
     replay.py      re-emits a recorded run at presentation speed
   web/
@@ -154,6 +200,8 @@ depend on the network.
 .venv/bin/python -m app.tests.test_server           # HTTP, SSE, artifacts
 .venv/bin/python -m app.tests.test_edits            # edit interpretation
 .venv/bin/python -m app.tests.test_edit_flow        # both edit paths, real kernel
+.venv/bin/python -m app.tests.test_replay           # recorded run fidelity
+.venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 ```
 

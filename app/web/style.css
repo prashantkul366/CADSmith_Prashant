@@ -525,3 +525,20 @@ textarea.src{
 /* header marker while a replay is on screen */
 .pill.replaying{color:var(--accent);border-color:var(--accent-dim);
   background:rgba(77,141,246,.1)}
+
+/* ---------- model backend picker ---------- */
+.opt select,.opt input[type=text],.opt input[type=password]{
+  width:132px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:3px;color:var(--ink);font-family:var(--mono);font-size:10.5px;
+  padding:4px 6px;transition:.13s}
+.opt select:focus,.opt input:focus{border-color:var(--accent);outline:none}
+.opt select option{background:var(--panel-2);color:var(--ink)}
+.keyrow{display:flex;gap:5px;align-items:center;padding:5px 0}
+.keyrow input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:3px;color:var(--ink);font-family:var(--mono);font-size:10.5px;padding:5px 7px}
+.keyrow input:focus{border-color:var(--accent);outline:none}
+.keyrow button{flex:none}
+.optnote{font-size:10.5px;line-height:1.45;color:var(--ink-dim);padding:4px 0 0}
+.optnote.ok{color:var(--valid)}
+.optnote.warn{color:var(--warn)}
+.optnote code{font-family:var(--mono);font-size:10px;color:var(--ink-2)}

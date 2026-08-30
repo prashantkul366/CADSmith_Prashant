@@ -67,6 +67,29 @@
         </div>
       </div>
 
+      <div class="opts" id="llmOpts">
+        <div class="opt">
+          <span>Provider</span>
+          <select id="optProvider"></select>
+        </div>
+        <div class="opt">
+          <span>Generation model</span>
+          <input id="optGenModel" list="genModels" placeholder="model id" />
+          <datalist id="genModels"></datalist>
+        </div>
+        <div class="opt">
+          <span>Judge model</span>
+          <input id="optJudgeModel" list="judgeModels" placeholder="model id" />
+          <datalist id="judgeModels"></datalist>
+        </div>
+        <div class="keyrow" id="keyRow" hidden>
+          <input id="providerBase" type="text" placeholder="Base URL" hidden />
+          <input id="providerKey" type="password" placeholder="API key" autocomplete="off" />
+          <button class="btn sm" id="saveKeyBtn">Use</button>
+        </div>
+        <div class="optnote" id="providerNote"></div>
+      </div>
+
       <div class="field" style="margin:16px 0 0">
         <span class="eyebrow">Benchmark prompts</span>
         <div class="samples" id="samples"></div>
@@ -147,7 +170,7 @@
         <div class="phead">
           <h2>Design Plan</h2>
           <div class="spacer" style="flex:1"></div>
-          <span class="eyebrow">PLANNER · SONNET</span>
+          <span class="eyebrow" id="genModelLabel">PLANNER</span>
         </div>
         <div class="ai-body" id="planBody">
           <div class="await">
@@ -182,7 +205,7 @@
         <div class="phead">
           <h2>Validation</h2>
           <div class="spacer" style="flex:1"></div>
-          <span class="eyebrow">JUDGE · OPUS</span>
+          <span class="eyebrow" id="judgeModelLabel">JUDGE</span>
         </div>
         <div class="ai-body" id="valBody">
           <div class="await">

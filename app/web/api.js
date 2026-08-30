@@ -23,6 +23,19 @@ const API = (() => {
     health:   () => json("/api/health"),
     examples: () => json("/api/examples").then(d => d.examples || []),
     jobs:     () => json("/api/jobs").then(d => d.jobs || []),
+    providers: (withModels) =>
+      json(`/api/providers${withModels ? "?models=true" : ""}`),
+
+    /* The key is posted once and held in server memory. It is never stored,
+       never logged, and never sent back — the reply says only whether the
+       provider is usable now. */
+    setProviderKey(providerId, apiKey, baseUrl) {
+      return json(`/api/providers/${encodeURIComponent(providerId)}/key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+      }).then(d => d.provider);
+    },
     job:      id => json(`/api/jobs/${encodeURIComponent(id)}`),
 
     createJob(prompt, options) {

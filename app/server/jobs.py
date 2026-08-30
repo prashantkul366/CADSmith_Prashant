@@ -35,6 +35,7 @@ from .events import (
     STATUS_OK,
     STATUS_STARTED,
 )
+from .providers import DEFAULT_PROVIDER, LLMConfig, resolve
 from .replay import clone_run, is_replayable, replay_into
 from .instrument import (
     InstrumentedExecutor,
@@ -44,6 +45,12 @@ from .instrument import (
     install_agent_hooks,
     set_context,
 )
+
+def _llm_problems(job: "Job") -> list[str]:
+    from .providers import problems
+
+    return problems(job.options.llm_config())
+
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -65,6 +72,9 @@ class JobOptions:
     max_iterations: int = 3
     max_error_retries: int = 3
     use_vision: bool = True
+    provider: str = DEFAULT_PROVIDER
+    generation_model: str = ""
+    judge_model: str = ""
 
     @classmethod
     def from_dict(cls, raw: Optional[dict]) -> "JobOptions":
@@ -73,6 +83,18 @@ class JobOptions:
             max_iterations=max(0, min(8, int(raw.get("max_iterations", 3)))),
             max_error_retries=max(0, min(5, int(raw.get("max_error_retries", 3)))),
             use_vision=bool(raw.get("use_vision", True)),
+            provider=str(raw.get("provider") or DEFAULT_PROVIDER),
+            generation_model=str(raw.get("generation_model") or ""),
+            judge_model=str(raw.get("judge_model") or ""),
+        )
+
+    def llm_config(self) -> LLMConfig:
+        """Resolve the backend for this job, keys included."""
+        return resolve(
+            provider_id=self.provider,
+            generation_model=self.generation_model,
+            judge_model=self.judge_model,
+            judge_vision=self.use_vision,
         )
 
 
@@ -187,10 +209,20 @@ class JobManager:
         ctx = self.context(job.id)
         assert sink is not None and ctx is not None
 
+        ctx.llm = job.options.llm_config()
         set_context(ctx)
         job.status = STATUS_RUNNING
         job.started_at = time.time()
-        sink.emit(PHASE_JOB, STATUS_STARTED, "Pipeline started.")
+        sink.emit(PHASE_JOB, STATUS_STARTED, "Pipeline started.",
+                  llm=ctx.llm.redacted())
+        if ctx.llm.generation_model == ctx.llm.judge_model:
+            # The pipeline judges with a stronger, separate model on purpose;
+            # one model grading its own work is the bias that design avoids.
+            sink.emit(
+                PHASE_JOB, STATUS_INFO,
+                f"Generation and judging both use {ctx.llm.judge_model}, so "
+                f"the Judge is grading its own work. Pick a different judge "
+                f"model for an independent check.")
 
         try:
             from autofab import agents
@@ -279,6 +311,7 @@ class JobManager:
                       "That run cannot be edited in this session.", edit=True)
             return
 
+        ctx.llm = job.options.llm_config()
         set_context(ctx)
         job.status = STATUS_RUNNING
         started = time.time()
@@ -307,15 +340,16 @@ class JobManager:
                           method=ctx.method, instruction=instruction,
                           changes=ctx.changes,
                           base_version=previous["iteration"])
-            elif not os.getenv("ANTHROPIC_API_KEY"):
-                # The patch path needs no model, so it stays available without
-                # a key; this one does not.
+            elif _llm_problems(job):
+                # The patch path needs no model, so it stays available with no
+                # provider configured; this one does not.
                 job.status = STATUS_DONE
                 sink.emit(
                     PHASE_JOB, STATUS_FAILED,
                     f"That is not a parameter change ({plan.reason}), so it "
-                    f"needs the Refiner agent - but ANTHROPIC_API_KEY is not "
-                    f"set. Try naming a dimension the script declares.",
+                    f"needs the Refiner agent - but no model backend is "
+                    f"available: {_llm_problems(job)[0]} Try naming a "
+                    f"dimension the script declares.",
                     edit=True)
                 return
             else:

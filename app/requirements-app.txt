@@ -22,3 +22,8 @@ vtk
 # Web server
 fastapi
 uvicorn[standard]
+
+# Talks to OpenAI-compatible backends (OpenAI, Ollama, llama.cpp, vLLM,
+# LM Studio, and the hosted gateways that speak the same API). The Anthropic
+# path uses its own SDK, from requirements.txt.
+httpx
