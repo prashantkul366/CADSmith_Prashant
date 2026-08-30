@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CADSmith — Multi-Agent CAD Generation</title>
+<!-- three.js is vendored so the app runs with no internet access:
+     a live demo must not depend on a CDN being reachable. -->
+<script src="/static/vendor/three.min.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%234D8DF6%22%20stroke-width%3D%221.6%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%202%203%207v10l9%205%209-5V7z%22%2F%3E%3Cpath%20d%3D%22M3%207l9%205%209-5M12%2012v10%22%2F%3E%3C%2Fsvg%3E" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="hdr">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+    <h1>CADSmith</h1>
+  </div>
+  <div class="pill" id="enginePill">Planner · Coder · Executor · Validator · Refiner</div>
+  <div style="flex:1"></div>
+  <button class="health" id="healthChip"><i></i><span>CHECKING…</span></button>
+  <button class="btn ghost sm" id="histBtn">
+    <svg class="icn" viewBox="0 0 24 24"><path d="M3 3v6h6M3.5 9a9 9 0 1 0 2.1-3.4L3 9"/></svg>History
+  </button>
+</header>
+
+<div class="diag" id="diag" hidden>
+  <h4>Environment</h4>
+  <div id="diagRows"></div>
+</div>
+
+<div class="shell">
+<div class="work">
+
+  <!-- ══════════ LEFT: input ══════════ -->
+  <div class="col left">
+    <div class="phead"><h2>Design Input</h2></div>
+    <div class="pbody">
+
+      <div class="banner" id="keyBanner" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+        <span id="keyBannerText"></span>
+      </div>
+
+      <div class="field">
+        <span class="eyebrow">Describe part</span>
+        <textarea class="prompt" id="prompt" placeholder="Describe the part you want to generate…"></textarea>
+      </div>
+
+      <button class="btn primary" style="width:100%" id="genBtn">
+        <svg class="icn" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.6"/></svg>
+        Generate CAD
+      </button>
+
+      <div class="opts">
+        <div class="opt">
+          <span>Refinement iterations</span>
+          <span style="display:flex;align-items:center;gap:7px">
+            <input type="range" id="optIters" min="0" max="5" step="1" value="3" />
+            <output id="optItersOut">3</output>
+          </span>
+        </div>
+        <div class="opt">
+          <span>Vision Judge</span>
+          <span class="sw on" id="optVision" role="switch" aria-checked="true" tabindex="0"></span>
+        </div>
+      </div>
+
+      <div class="field" style="margin:16px 0 0">
+        <span class="eyebrow">Benchmark prompts</span>
+        <div class="samples" id="samples"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CENTRE: viewer ══════════ -->
+  <div class="col center">
+    <div class="vtools">
+      <button class="vt on" data-view="iso">ISO</button>
+      <button class="vt" data-view="front">FRONT</button>
+      <button class="vt" data-view="top">TOP</button>
+      <button class="vt" data-view="right">RIGHT</button>
+      <div class="spacer" style="flex:1"></div>
+      <button class="vt" id="fitBtn">FIT</button>
+      <button class="vt" id="wireBtn">WIREFRAME</button>
+      <button class="vt" id="spinBtn">SPIN</button>
+      <button class="btn sm" id="drawBtn" disabled>
+        <svg class="icn" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M9 9v11"/></svg>Drawing
+      </button>
+    </div>
+
+    <div class="stage" id="stage">
+      <div id="gl"></div>
+      <svg class="axes" viewBox="0 0 60 60" id="axes">
+        <g id="axG" stroke-width="1.6" fill="none" stroke-linecap="round"></g>
+      </svg>
+      <div class="scalebar"><i></i><span id="scaleTxt">— mm</span></div>
+
+      <div class="ov" id="ovEmpty">
+        <div class="empty">
+          <svg class="empty-art" viewBox="0 0 24 24" fill="none" stroke="#4A5768" stroke-width="1"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+          <h3>Nothing built yet</h3>
+          <p>Describe a part on the left. Five agents plan it, write CadQuery, run
+             it through the OpenCASCADE kernel and check the result before
+             anything appears here.</p>
+        </div>
+      </div>
+
+      <div class="ov" id="ovPipe" hidden>
+        <div>
+          <div class="pipe" id="pipe"></div>
+          <div class="plog" id="plog"></div>
+        </div>
+      </div>
+
+      <div class="ov" id="ovErr" hidden>
+        <div class="empty">
+          <svg class="empty-art" viewBox="0 0 24 24" fill="none" stroke="#7A3038" stroke-width="1"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+          <h3 id="errTitle">The run could not complete</h3>
+          <div class="quote" id="errMsg"></div>
+          <p id="errFix"></p>
+          <div class="row">
+            <button class="btn primary" id="errRetry">Try again</button>
+            <button class="btn" id="errKeep" hidden>Show best attempt</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="minfo" id="minfo" hidden>
+        <div class="mstat">
+          <svg class="icn" viewBox="0 0 24 24" id="mIcon" style="color:var(--valid)"><path d="M20 6 9 17l-5-5"/></svg>
+          <span id="mtitle">Model generated</span>
+        </div>
+        <div class="mfacts" id="mfacts"></div>
+      </div>
+    </div>
+
+    <div class="iters" id="iters"></div>
+  </div>
+
+  <!-- ══════════ RIGHT: plan, code, validation ══════════ -->
+  <div class="col right">
+    <div class="rsplit">
+
+      <div class="rsec ai">
+        <div class="phead">
+          <h2>Design Plan</h2>
+          <div class="spacer" style="flex:1"></div>
+          <span class="eyebrow">PLANNER · SONNET</span>
+        </div>
+        <div class="ai-body" id="planBody">
+          <div class="await">
+            <svg class="icn" viewBox="0 0 24 24" style="opacity:.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+            No part planned yet.
+          </div>
+        </div>
+      </div>
+
+      <div class="rsec code">
+        <div class="phead">
+          <h2>Generated CadQuery</h2>
+          <div class="spacer" style="flex:1"></div>
+          <span class="eyebrow" id="codeStat">— — —</span>
+        </div>
+        <div class="codewrap">
+          <div class="code-scroll" id="codeScroll">
+            <div class="code-inner">
+              <pre class="hl" id="hl"></pre>
+            </div>
+          </div>
+        </div>
+        <div class="coderow">
+          <button class="btn sm" id="copyBtn"><svg class="icn" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="btn sm" id="dlPy"><svg class="icn" viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg>.py</button>
+          <button class="btn sm" id="dlStep">STEP</button>
+          <button class="btn sm" id="dlStl">STL</button>
+        </div>
+      </div>
+
+      <div class="rsec val">
+        <div class="phead">
+          <h2>Validation</h2>
+          <div class="spacer" style="flex:1"></div>
+          <span class="eyebrow">JUDGE · OPUS</span>
+        </div>
+        <div class="ai-body" id="valBody">
+          <div class="await">
+            <svg class="icn" viewBox="0 0 24 24" style="opacity:.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+            Nothing validated yet.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ command bar ══════════ -->
+<div class="cmd">
+  <div class="act" id="act" hidden>
+    <div class="act-steps" id="actSteps"></div>
+    <div id="actDiff"></div>
+  </div>
+  <div class="cmd-side">
+    <span class="eyebrow">Natural-language editor</span>
+    <span style="font-size:10.5px;color:var(--ink-dim)">Edits the current model</span>
+  </div>
+  <div class="cmd-in">
+    <svg class="icn" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg>
+    <input id="cmdIn" placeholder="Ask for a change…  e.g. make it 15 mm thick, or add a reinforcing gusset" disabled />
+  </div>
+  <button class="btn primary" id="applyBtn" disabled style="height:36px;padding:0 16px">Apply change</button>
+</div>
+</div>
+
+<!-- ══════════ history drawer ══════════ -->
+<aside class="hist" id="hist">
+  <div class="hist-hd">
+    <h3>Run History</h3>
+    <div class="spacer" style="flex:1"></div>
+    <button class="x" id="histClose"><svg class="icn" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+  <div class="hlist" id="hlist"></div>
+</aside>
+
+<!-- ══════════ drawing sheet ══════════ -->
+<div class="sheet" id="sheet">
+  <div class="sheet-bar">
+    <span class="eyebrow">ENGINEERING DRAWING</span>
+    <div class="spacer" style="flex:1"></div>
+    <button class="btn sm" id="expPng">Export PNG</button>
+    <button class="btn sm primary" id="back3d">Back to 3D</button>
+  </div>
+  <div class="sheet-scroll"><div class="paper" id="paper"></div></div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden><img id="lightboxImg" alt="Three-view render" /></div>
+<div class="toast" id="toast"></div>
+
+<script src="/static/api.js"></script>
+<script src="/static/viewer.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
