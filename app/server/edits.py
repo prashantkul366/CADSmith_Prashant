@@ -97,6 +97,11 @@ class EditPlan:
     """What a parameter patch would do, or why it cannot be done."""
     changes: list[Change]
     reason: str = ""
+    #: True when ``reason`` tells the person what to say instead, rather than
+    #: describing a limitation. Sending one of these to the Refiner would be
+    #: wrong twice over: it is not a structural change, and the answer is
+    #: already in hand.
+    guidance: bool = False
 
     @property
     def possible(self) -> bool:
@@ -147,6 +152,60 @@ def _domain_words(instruction: str) -> set[str]:
         for word in re.findall(r"[a-zA-Zø]+", instruction.lower())
         if word in _SYNONYMS
     }
+
+
+#: Words that name a diameter without saying which one.
+_DIAMETER_WORDS = {"diameter", "diameters", "dia", "od", "across", "size"}
+
+
+def _derived_conflict(available: dict, words: set, best=None) -> str:
+    """A dimension the script implies but never declares.
+
+    A gear's outside diameter is ``module x teeth + 2 x module``. There is no
+    ``diameter`` assignment to patch, so a bare "make it 50mm diameter" lands
+    on whichever qualified parameter happens to contain the word - on a gear,
+    the bore. The result is a 50mm hole in a 96mm gear: silent, and wrong in
+    the way that matters, because it looks like it worked.
+
+    Returns an explanation when the instruction is ambiguous this way, or an
+    empty string when it is not. The explanation carries the arithmetic, so
+    the answer is actionable rather than just a refusal.
+    """
+    if not ({"module", "teeth_number"} <= set(available)):
+        return ""            # only gears derive a diameter this way, for now
+
+    named = _DIAMETER_WORDS & words
+    if not named:
+        return ""
+    if best is not None:
+        matched_on = _tokens(best.name) & words
+        qualified = _tokens(best.name) <= words
+        if qualified or not matched_on <= _DIAMETER_WORDS:
+            return ""        # "bore diameter" is explicit; leave it alone
+
+    module = available["module"].value
+    teeth = available["teeth_number"].value
+    current = module * teeth + 2 * module
+    instead = (f", or say \"{best.name.replace('_', ' ')}\" if you meant that"
+               if best is not None else "")
+    return (
+        f"a gear has no diameter to set - its outside diameter is "
+        f"module x teeth + 2 x module, currently {module:g} x {teeth:g} + "
+        f"{2 * module:g} = {current:g}mm. Change the tooth count or the "
+        f"module to resize it{instead}."
+    )
+
+
+def _gear_suggestion(available: dict, target: float) -> str:
+    """How to reach a wanted gear diameter, in the two ways that exist."""
+    module = available["module"].value
+    teeth = available["teeth_number"].value
+    by_teeth = max(6, round(target / module - 2))
+    got = module * (by_teeth + 2)
+    by_module = target / (teeth + 2)
+    return (f" For {target:g}mm: {by_teeth:g} teeth at module {module:g} "
+            f"gives {got:g}mm, or module {by_module:.3g} at {teeth:g} teeth "
+            f"gives exactly {target:g}mm.")
 
 
 def _score(parameter: Parameter, words: set[str], counting: bool) -> int:
@@ -211,6 +270,13 @@ def plan_edit(code: str, instruction: str) -> EditPlan:
     )
     best, best_score = scored[0]
     if best_score <= 0:
+        # "make it 50mm across" names a dimension the script derives rather
+        # than declares, so nothing matches - but the useful reply is the
+        # arithmetic, not "no parameter matches the words used".
+        derived = _derived_conflict(available, words)
+        if derived:
+            return EditPlan([], derived + _gear_suggestion(
+                available, values[-1]), guidance=True)
         return EditPlan([], "no parameter matches the words used")
 
     runner_up = scored[1][1] if len(scored) > 1 else 0
@@ -232,6 +298,15 @@ def plan_edit(code: str, instruction: str) -> EditPlan:
     structural = _MAYBE_STRUCTURAL.search(text)
     if structural and not (counting and bool(_tokens(best.name) & _COUNT_TOKENS)):
         return EditPlan([], f"'{structural.group(1)}' asks for a change in shape")
+
+    # A dimension the script derives rather than declares is not patchable,
+    # and matching it to a qualified parameter that merely shares a word is
+    # how "make it 50mm diameter" becomes a 50mm bore in a 96mm gear.
+    derived = _derived_conflict(available, words, best)
+    if derived:
+        target = values[0] if len(values) == 1 else values[-1]
+        return EditPlan([], derived + _gear_suggestion(available, target),
+                        guidance=True)
 
     amount = values[0] if len(values) == 1 else _nearest_number(text, best, values)
 

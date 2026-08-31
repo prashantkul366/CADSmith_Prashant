@@ -217,6 +217,30 @@ guessed — "make the thickness 12mm" against a script with both
 `base_thickness` and `support_thickness` is refused rather than resolved
 arbitrarily.
 
+**Keep editing.** Changes chain: ask for 40 teeth, then module 3, then a
+wider face, and each lands on top of the last rather than on the original.
+Every step becomes its own version in the timeline, so you can click back to
+any of them — and editing while looking at an older version branches from
+*that* one, not the newest. Patches and Refiner edits interleave freely: a
+patch after a full Refiner rewrite still reads its parameters back out of
+code it did not write.
+
+A refused edit changes nothing and consumes no version number, so a
+misunderstanding costs a sentence, not your part.
+
+Some dimensions are **derived rather than declared**, and asking for those
+directly is refused with the arithmetic rather than guessed at. A gear has
+no `diameter` to patch — its outside diameter is `module × teeth + 2 ×
+module` — so *"set the diameter to 50mm"* would otherwise land on the one
+parameter that happens to contain the word, giving you a 50mm hole in a 96mm
+gear. Instead it answers:
+
+> a gear has no diameter to set — its outside diameter is module × teeth +
+> 2 × module, currently 2 × 20 + 4 = 44mm. Change the tooth count or the
+> module to resize it, or say "bore diameter" if you meant that. For 50mm:
+> 23 teeth at module 2 gives 50mm, or module 2.27 at 20 teeth gives exactly
+> 50mm.
+
 **Drawing.** Front, top, right and isometric views projected from the exported
 STEP solid, with hidden lines resolved and all four at a common scale.
 
@@ -464,6 +488,8 @@ before anything is manufactured.
 .venv/bin/python -m app.tests.test_server           # HTTP, SSE, artifacts
 .venv/bin/python -m app.tests.test_edits            # edit interpretation
 .venv/bin/python -m app.tests.test_edit_flow        # both edit paths, real kernel
+.venv/bin/python -m app.tests.test_edit_chain      # editing the same part
+                                                    # over and over, real kernel
 .venv/bin/python -m app.tests.test_replay           # recorded run fidelity
 .venv/bin/python -m app.tests.test_catalog         # standard hardware, real kernel
 .venv/bin/python -m app.tests.test_grounding       # what reaches the Planner
@@ -471,6 +497,8 @@ before anything is manufactured.
                                                     # kernel; routing; the guard
 .venv/bin/python -m app.tests.ui_catalog_check     # catalogue in a browser,
                                                     # with no API key
+.venv/bin/python -m app.tests.ui_edit_check        # a long edit chain in a
+                                                    # browser, no API key
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,

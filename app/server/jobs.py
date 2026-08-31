@@ -359,6 +359,7 @@ class JobManager:
         if ctx is None:
             # Never fail silently here: the client is waiting on the stream.
             job.status = STATUS_DONE
+            job.finished_at = time.time()
             sink.emit(PHASE_JOB, STATUS_FAILED,
                       "That run cannot be edited in this session.", edit=True)
             return
@@ -393,6 +394,14 @@ class JobManager:
                           method=ctx.method, instruction=instruction,
                           changes=ctx.changes,
                           base_version=previous["iteration"])
+            elif plan.guidance:
+                # The reason already says what to do, so offering the Refiner
+                # would be misleading - this is not a structural change and
+                # no agent is needed to resolve it.
+                job.status = STATUS_DONE
+                sink.emit(PHASE_JOB, STATUS_FAILED,
+                          f"Not applied - {plan.reason}", edit=True)
+                return
             elif _llm_problems(job):
                 # The patch path needs no model, so it stays available with no
                 # provider configured; this one does not.
@@ -471,6 +480,13 @@ class JobManager:
                       f"The edit failed: {type(exc).__name__}: {exc}",
                       traceback=traceback.format_exc()[-4000:], edit=True)
         finally:
+            # Every terminal path of an edit lands here, including the early
+            # returns for a refused or unbuildable change. Without this the
+            # job kept reporting the *original* run's finish time, so an API
+            # client polling finished_at could not tell an edit had happened
+            # at all - the browser only got away with it because it follows
+            # the event stream instead.
+            job.finished_at = time.time()
             ctx.source, ctx.method = "pipeline", ""
             ctx.instruction, ctx.changes = "", []
             set_context(None)
