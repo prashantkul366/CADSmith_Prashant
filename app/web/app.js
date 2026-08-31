@@ -464,12 +464,32 @@ async function generate() {
     const job = await API.createJob(prompt, options);
     S.jobId = job.id;
     S.seq = 0;
+    rememberRun(job.id);
     follow(job.id, 0);
   } catch (error) {
     S.busy = false;
     $("#genBtn").disabled = false;
     failRun(error.message);
   }
+}
+
+/* A run outlives the page: the pipeline keeps working server-side while the
+   browser reloads, sleeps or navigates away. Remember which job was in
+   flight so boot() can reattach to it, rather than leaving a finished run
+   sitting in History looking like it vanished. sessionStorage can throw
+   outright in a locked-down browser, so every touch is guarded. */
+const RUNNING_KEY = "cadsmith:running";
+
+function rememberRun(jobId) {
+  try { sessionStorage.setItem(RUNNING_KEY, jobId); } catch (e) { /* fine */ }
+}
+
+function forgetRun() {
+  try { sessionStorage.removeItem(RUNNING_KEY); } catch (e) { /* fine */ }
+}
+
+function rememberedRun() {
+  try { return sessionStorage.getItem(RUNNING_KEY); } catch (e) { return null; }
 }
 
 function follow(jobId, fromSeq) {
@@ -488,6 +508,7 @@ function follow(jobId, fromSeq) {
 
 function finishRun(data) {
   S.busy = false;
+  forgetRun();
   S.converged = !!data.converged;
   $("#genBtn").disabled = !(S.health && S.health.can_generate);
 
@@ -513,6 +534,7 @@ function finishRun(data) {
 
 function failRun(message) {
   S.busy = false;
+  forgetRun();
   $("#genBtn").disabled = !(S.health && S.health.can_generate);
   $("#errTitle").textContent = "The run could not complete";
   $("#errMsg").textContent = message || "Unknown error.";
@@ -1098,6 +1120,44 @@ $("#expPng").onclick = exportDrawingPng;
 
 /* ═══════════════════════ boot ═══════════════════════ */
 
+/* Reattach to a run that was still going when the page went away.
+   The event log is append-only and replayable from a sequence number, so
+   following from 0 rebuilds the whole run through the same handler a live
+   run uses - no separate restore path to keep in step. */
+async function resumeRun(jobId) {
+  if (!jobId) return;
+  let state;
+  try { state = await API.job(jobId); }
+  catch (error) { forgetRun(); return; }
+
+  const job = state.job;
+  if (job.finished_at) {
+    // It completed while we were away. Show the result rather than the
+    // stale progress overlay.
+    forgetRun();
+    await openJob(jobId);
+    toast("That run finished while the page was away");
+    return;
+  }
+
+  S.busy = true;
+  S.jobId = jobId;
+  S.seq = 0;
+  S.versions = [];
+  S.selected = -1;
+  S.converged = false;
+  $("#prompt").value = job.prompt;
+  $("#genBtn").disabled = true;
+  $("#drawBtn").disabled = true;
+  $("#cmdIn").disabled = true;
+  $("#applyBtn").disabled = true;
+  $("#iters").innerHTML = "";
+  showOverlay("pipe");
+  renderStages("plan", "Reattaching to a run already in progress");
+  follow(jobId, 0);
+  toast("Reattached to a run still in progress");
+}
+
 (async function boot() {
   await loadHealth();
   await loadProviders();
@@ -1105,4 +1165,5 @@ $("#expPng").onclick = exportDrawingPng;
   await loadHistory();
   setCode("");
   Viewer.fit(false);
+  await resumeRun(rememberedRun());
 })();

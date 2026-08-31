@@ -197,6 +197,12 @@ of those.
 and refinement rounds appear as they happen, which is the part worth showing:
 the loop is the contribution.
 
+**Reload without losing the run.** The pipeline keeps working server-side
+while the browser is away, so a refresh, a closed lid or a stray Cmd-R
+reattaches to the run in progress rather than dropping it — the event log is
+append-only and replays from where the page left off. A run that finished
+while you were away opens on its result.
+
 **Compare attempts.** Every attempt is a card in the timeline under the viewer.
 Click a rejected one to load its geometry, its source and the Judge's reasons
 for rejecting it, next to the render the Judge was given.
@@ -235,6 +241,9 @@ app/
     index.html  style.css  app.js  api.js  viewer.js  vendor/three.min.js
   tools/
     seed_demo_run.py   record demo runs without an API key
+    mock_provider.py   a local stand-in for a model backend
+    mock_parts.py      ten real mechanical parts it serves
+    doctor.py          preflight: can this machine run a demo
   tests/
   runs/         one directory per run: events.jsonl, meta.json, v0/ v1/ …
 ```
@@ -262,9 +271,25 @@ python -m app.tools.mock_provider --fail hang      # never answers
 ```
 
 Then in the app pick **Custom (OpenAI-compatible)**, base URL
-`http://127.0.0.1:8123/v1`, models `mock-coder` and `mock-judge`. The scripted
-run is deliberately imperfect — the first attempt is too thick and the Judge
-rejects it — so the refinement loop is exercised rather than skipped.
+`http://127.0.0.1:8123/v1`, models `mock-coder` and `mock-judge`.
+
+The reply is chosen by what you asked for, from ten parts in
+`app/tools/mock_parts.py` — pillow block, L-bracket with a gusset, pipe
+flange, hydraulic manifold, NEMA 23 motor mount, V-belt pulley, cover plate
+with an O-ring groove, stepped shaft, flanged bushing, flat plate. Things a
+CAD engineer actually asks for, rather than the primitives the benchmark
+leans on. Vague requests still land somewhere sensible: *"something to hold a
+rotating shaft"* produces a pillow block.
+
+Each part carries one plausible mistake in its first attempt — a bore too
+small, a gusset missing, six bolt holes where the plan says eight, manifold
+ports that stop short of the gallery — so the Judge rejects it in the terms
+an engineer would use and the refinement loop is exercised rather than
+skipped. Both variants are executed in the kernel before being added: the
+flawed one must *build*, or the Error Refiner would catch it as a crash and
+the Judge would never weigh in on the geometry.
+
+`--part v_pulley` forces one regardless of the prompt.
 
 Better than a real key for reproducing a failure, because the misbehaviour is
 deterministic.
@@ -283,6 +308,9 @@ deterministic.
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,
                                                     # plus provider failures
+.venv/bin/python -m app.tests.ui_parts_check       # real parts, vague to
+                                                    # complex; mid-run clicking;
+                                                    # stage timings
 ```
 
 Only the Anthropic HTTP call is faked, by patching `agents._get_client`. The
