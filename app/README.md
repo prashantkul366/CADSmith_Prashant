@@ -246,6 +246,29 @@ Each version bundle holds `code.py`, `model.stl`, `model.step`,
 three.js is vendored rather than loaded from a CDN: a live demo should not
 depend on the network.
 
+## Testing without spending quota
+
+A local OpenAI-compatible server stands in for a real provider, so the whole
+pipeline runs — CadQuery builds the geometry, VTK renders it, the loop
+refines — with the model replaced by canned replies:
+
+```bash
+python -m app.tools.mock_provider              # well behaved
+python -m app.tools.mock_provider --fail 429   # rate limited
+python -m app.tools.mock_provider --fail badjson   # prose around the JSON
+python -m app.tools.mock_provider --fail novision  # refuses images
+python -m app.tools.mock_provider --fail empty     # reasoning-only reply
+python -m app.tools.mock_provider --fail hang      # never answers
+```
+
+Then in the app pick **Custom (OpenAI-compatible)**, base URL
+`http://127.0.0.1:8123/v1`, models `mock-coder` and `mock-judge`. The scripted
+run is deliberately imperfect — the first attempt is too thick and the Judge
+rejects it — so the refinement loop is exercised rather than skipped.
+
+Better than a real key for reproducing a failure, because the misbehaviour is
+deterministic.
+
 ## Tests
 
 ```bash
@@ -258,6 +281,8 @@ depend on the network.
 .venv/bin/python -m app.tests.test_replay           # recorded run fidelity
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
+.venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,
+                                                    # plus provider failures
 ```
 
 Only the Anthropic HTTP call is faked, by patching `agents._get_client`. The

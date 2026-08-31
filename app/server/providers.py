@@ -539,7 +539,16 @@ class OpenAICompatibleClient:
                 f"{self.config.provider} returned no completion: "
                 f"{json.dumps(payload)[:400]}")
 
-        text = (choices[0].get("message") or {}).get("content") or ""
+        message = choices[0].get("message") or {}
+        text = message.get("content") or ""
+        if not text.strip() and message.get("reasoning"):
+            # Some models put the answer in a "reasoning" field and leave
+            # content empty. Say so, rather than letting the agent fail later
+            # on an unparseable empty string.
+            raise RuntimeError(
+                f"{self.config.provider} model '{model}' replied with "
+                f"reasoning only and no content. The pipeline reads the "
+                f"content field, so this model cannot be used for that role.")
         raw_usage = payload.get("usage") or {}
         usage = _Usage(
             input_tokens=int(raw_usage.get("prompt_tokens", 0) or 0),

@@ -302,12 +302,15 @@ textarea.src{
 .cmd-side .eyebrow{font-size:8.5px}
 
 /* activity */
-.act{
+/* Scoped to the command strip by id: as a bare class this also matched
+   .pstep.act, which pulled the active pipeline stage out of flow and parked
+   it above the viewer. */
+#act{
   position:absolute;left:14px;right:14px;bottom:calc(100% + 9px);
   background:var(--raise);border:1px solid #2C3543;border-radius:7px;padding:11px 13px;
   box-shadow:0 -8px 30px rgba(0,0,0,.5);display:flex;align-items:center;gap:12px;
 }
-.act[hidden]{display:none}
+#act[hidden]{display:none}
 .act-steps{display:flex;align-items:center;gap:9px;flex:1;flex-wrap:wrap}
 .ast{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#4A5768;transition:color .25s}
 .ast.act{color:var(--accent);font-weight:600}
