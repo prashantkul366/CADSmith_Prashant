@@ -169,6 +169,31 @@ BEARINGS: dict[str, BearingSpec] = {
 }
 
 
+@dataclass(frozen=True)
+class MotorFrameSpec:
+    """A NEMA stepper motor frame, from the mounting face."""
+    frame_size: float        # the square body, mm
+    bolt_pattern: float      # square centres of the four mounting screws
+    pilot_diameter: float    # the raised boss the plate must clear
+    shaft_diameter: float
+    mounting_screw: str      # the size that normally goes through the plate
+
+
+# NEMA ICS 16 frame sizes. The pilot boss is the number most often got wrong:
+# a NEMA 23 needs 38.1mm of clearance, and a plate bored 22mm - the NEMA 17
+# figure - will not seat at all. That exact mistake is why this table exists.
+NEMA_FRAMES: dict[str, MotorFrameSpec] = {
+    #                        frame  pattern  pilot  shaft  screw
+    "NEMA 8":  MotorFrameSpec( 20.3,  15.4,  15.0,  4.00, "M2.5"),
+    "NEMA 11": MotorFrameSpec( 28.2,  23.0,  22.0,  5.00, "M2.5"),
+    "NEMA 14": MotorFrameSpec( 35.2,  26.0,  22.0,  5.00, "M3"),
+    "NEMA 17": MotorFrameSpec( 42.3,  31.0,  22.0,  5.00, "M3"),
+    "NEMA 23": MotorFrameSpec( 56.4,  47.14, 38.1,  6.35, "M5"),
+    "NEMA 34": MotorFrameSpec( 86.0,  69.6,  73.0, 14.00, "M6"),
+    "NEMA 42": MotorFrameSpec(110.0,  88.9,  55.5, 19.00, "M8"),
+}
+
+
 # Standard O-ring cord diameters, metric. An O-ring is specified by its
 # inside diameter and its cord, so the cord list is all that needs tabling.
 O_RING_CORDS: tuple[float, ...] = (1.0, 1.5, 1.78, 2.0, 2.5, 2.62,

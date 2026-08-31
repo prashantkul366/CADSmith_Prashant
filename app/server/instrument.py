@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from app.catalog import grounding
 from autofab.executor import Executor, ExecutionResult
 from autofab.pipeline import Pipeline
 from autofab.validator import Validator, ValidationReport
@@ -44,6 +45,7 @@ from .events import (
     PHASE_CODE,
     PHASE_ERROR_FIX,
     PHASE_EXECUTE,
+    PHASE_GROUND,
     PHASE_JUDGE,
     PHASE_LOG,
     PHASE_PLAN,
@@ -83,6 +85,10 @@ class RunContext:
     #: Which model backend this job runs against. ``None`` means the stock
     #: Anthropic client, exactly as the published pipeline uses.
     llm: Optional[LLMConfig] = None
+    #: Whether the Planner is given standard dimensions for whatever the
+    #: request names. Off reproduces the published behaviour exactly, which
+    #: is what makes it an ablation rather than a setting.
+    ground_dimensions: bool = True
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -186,8 +192,33 @@ def install_agent_hooks() -> None:
         inner._cadsmith_wrapped = True  # type: ignore[attr-defined]
         return inner
 
+    # The Planner is the only agent with no retrieval of its own, and it is
+    # told to "estimate reasonable engineering dimensions" when the request
+    # does not state them - which is where a NEMA 23 acquires a 22mm pilot
+    # bore. Give it the published numbers for whatever the request names.
+    #
+    # Gated on the run context, like everything else here: outside the web
+    # app this is a pass-through, so run.py and the benchmark scripts see the
+    # published behaviour untouched.
+    _plan_inner = agents.plan
+
+    def grounded_plan(prompt, *args, **kwargs):
+        ctx = _current.get()
+        if ctx is None or not ctx.ground_dimensions:
+            return _plan_inner(prompt, *args, **kwargs)
+        grounded, facts = grounding.ground(prompt)
+        ctx.emit(
+            PHASE_GROUND,
+            STATUS_OK if facts else STATUS_INFO,
+            grounding.summary(facts),
+            subjects=[fact.subject for fact in facts],
+            standards=[fact.standard for fact in facts],
+            added_chars=len(grounded) - len(prompt),
+        )
+        return _plan_inner(grounded, *args, **kwargs)
+
     agents.plan = wrap(
-        agents.plan,
+        grounded_plan,
         PHASE_PLAN,
         lambda prompt, *a, **k: {"prompt": prompt},
         lambda plan: {"design_plan": plan},

@@ -192,6 +192,9 @@ of those.
   before the run gives up. Defaults to 3; the pipeline's own default is 5.
 - *Vision Judge* — whether the Judge sees the three-view render alongside the
   kernel metrics. Turning it off reproduces the paper's ablation live.
+- *Standard dimensions* — whether the Planner is handed the published numbers
+  for any standard part the request names. See **Grounding the Planner**
+  above.
 
 **Watch it work.** The five stages are driven by real events. Execution errors
 and refinement rounds appear as they happen, which is the part worth showing:
@@ -240,12 +243,15 @@ app/
   web/
     index.html  style.css  app.js  api.js  viewer.js  vendor/three.min.js
   catalog/
-    standards.py   dimensions from ISO 4762/4014/4032/7089/273/2338, ISO 15
+    standards.py   dimensions from ISO 4762/4014/4032/7089/273/2338, ISO 15,
+                   and NEMA ICS 16 motor frames
     parts.py       those tables turned into CadQuery source
+    grounding.py   retrieval of the numbers for the Planner
   tools/
     seed_demo_run.py   record demo runs without an API key
     mock_provider.py   a local stand-in for a model backend
     mock_parts.py      ten real mechanical parts it serves
+    grounding_ab.py    with/without grounding, against a real model
     doctor.py          preflight: can this machine run a demo
   tests/
   runs/         one directory per run: events.jsonl, meta.json, v0/ v1/ …
@@ -297,6 +303,46 @@ the Judge would never weigh in on the geometry.
 Better than a real key for reproducing a failure, because the misbehaviour is
 deterministic.
 
+## Grounding the Planner in real dimensions
+
+The Planner is the only agent with no retrieval of its own. KB1 gives the
+Coder CadQuery API docs, KB2 gives the Error Refiner error fixes, and the
+agent that decides every target dimension gets the bare prompt — plus a
+system prompt telling it to *"estimate reasonable engineering dimensions"*
+when the request does not state them. Estimating is where a NEMA 23 acquires
+a 22mm pilot bore instead of 38.1mm.
+
+`app/catalog/grounding.py` is the missing third knowledge base: not geometry,
+not API docs, just the published numbers for whatever a request names. Ask
+for a NEMA 23 plate and the Planner is handed the frame size, the 47.14mm
+bolt pattern, the 38.1mm pilot boss, the shaft diameter and the M5 hardware
+that goes with it — about 1KB, and under 0.1s per run.
+
+Retrieval is conservative: a request naming nothing standard gets nothing
+appended, and an unrecognised designation (`M99`, `9999 bearing`) is never
+guessed at. Wrong facts would be worse than none, since they reach the plan,
+the code and the Judge's acceptance criteria together.
+
+**It is an ablation, not a setting.** The *Standard dimensions* toggle sits
+next to *Vision Judge*; off reproduces the published pipeline exactly. And
+like everything else in `instrument.py` it is gated on an active run context,
+so `run.py` and the benchmark scripts see the published prompt untouched —
+`test_grounding.py` asserts that by capturing the exact text arriving at the
+LLM boundary.
+
+**What is and is not proven.** The tests prove the numbers reach the model
+and that the toggle works in both directions. They cannot prove a given model
+then *uses* them — that needs a real key:
+
+```bash
+.venv/bin/python -m app.tools.grounding_ab --provider anthropic
+```
+
+runs five prompts with and without grounding, one Planner call per cell, and
+scores whether the published value came out in the plan. If a model already
+knows the number, grounding buys nothing for that fact and the harness says
+so rather than assuming the feature works.
+
 ## Standard hardware, generated rather than downloaded
 
 `app/catalog/` builds standard mechanical hardware parametrically: socket
@@ -347,6 +393,7 @@ before anything is manufactured.
 .venv/bin/python -m app.tests.test_edit_flow        # both edit paths, real kernel
 .venv/bin/python -m app.tests.test_replay           # recorded run fidelity
 .venv/bin/python -m app.tests.test_catalog         # standard hardware, real kernel
+.venv/bin/python -m app.tests.test_grounding       # what reaches the Planner
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,

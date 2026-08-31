@@ -34,6 +34,7 @@ PHASE_VERSION = "version"    # A new artifact bundle is available to the client
 PHASE_JOB = "job"            # Job lifecycle: queued / running / done / failed
 PHASE_LOG = "log"            # Raw console line from the pipeline itself
 PHASE_EDIT = "edit"          # Natural-language edit: which path was taken
+PHASE_GROUND = "ground"      # Standard dimensions retrieved for the Planner
 
 STATUS_STARTED = "started"
 STATUS_OK = "ok"

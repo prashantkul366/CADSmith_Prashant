@@ -137,7 +137,12 @@ class Handler(BaseHTTPRequestHandler):
             # A fixed string would make consecutive runs indistinguishable on
             # screen, hiding whether the panel is actually being refreshed.
             plan = json.loads(json.dumps(part.plan))
-            asked = " ".join(user.split())[:90]
+            # Echo the request only, not the reference dimensions the app may
+            # have appended: a real Planner writes its own prose here, so
+            # letting the block through would misrepresent what grounding
+            # looks like on screen.
+            asked = user.split("REFERENCE DIMENSIONS")[0]
+            asked = " ".join(asked.split())[:90]
             if asked:
                 plan["description"] = f"{part.plan['description']} (asked: {asked})"
             return self._maybe_wrap(json.dumps(plan))

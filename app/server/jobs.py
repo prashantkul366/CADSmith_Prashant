@@ -72,6 +72,10 @@ class JobOptions:
     max_iterations: int = 3
     max_error_retries: int = 3
     use_vision: bool = True
+    #: Give the Planner the published dimensions for whatever the request
+    #: names. Off reproduces the pipeline as published, so the two settings
+    #: are a live ablation rather than a preference.
+    ground_dimensions: bool = True
     provider: str = DEFAULT_PROVIDER
     generation_model: str = ""
     judge_model: str = ""
@@ -83,6 +87,7 @@ class JobOptions:
             max_iterations=max(0, min(8, int(raw.get("max_iterations", 3)))),
             max_error_retries=max(0, min(5, int(raw.get("max_error_retries", 3)))),
             use_vision=bool(raw.get("use_vision", True)),
+            ground_dimensions=bool(raw.get("ground_dimensions", True)),
             provider=str(raw.get("provider") or DEFAULT_PROVIDER),
             generation_model=str(raw.get("generation_model") or ""),
             judge_model=str(raw.get("judge_model") or ""),
@@ -210,6 +215,7 @@ class JobManager:
         assert sink is not None and ctx is not None
 
         ctx.llm = job.options.llm_config()
+        ctx.ground_dimensions = job.options.ground_dimensions
         set_context(ctx)
         job.status = STATUS_RUNNING
         job.started_at = time.time()
@@ -312,6 +318,7 @@ class JobManager:
             return
 
         ctx.llm = job.options.llm_config()
+        ctx.ground_dimensions = job.options.ground_dimensions
         set_context(ctx)
         job.status = STATUS_RUNNING
         started = time.time()

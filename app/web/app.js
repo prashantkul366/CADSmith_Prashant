@@ -213,6 +213,17 @@ function handleEvent(event) {
 
   if (phase === "log") { appendLog(message); return; }
 
+  // Grounding happens before the Planner runs. Show it in the run log and on
+  // the Planning stage, so what the Planner was told is visible rather than
+  // being a silent prompt change.
+  if (phase === "ground") {
+    appendLog(`Standard dimensions: ${message}`);
+    if (data && data.subjects && data.subjects.length) {
+      renderStages("plan", `Grounded in ${data.subjects.join(", ")}`);
+    }
+    return;
+  }
+
   const stage = PHASE_STAGE[phase];
   if (stage) {
     let detail = "";
@@ -455,6 +466,7 @@ async function generate() {
   const options = {
     max_iterations: +$("#optIters").value,
     use_vision: $("#optVision").classList.contains("on"),
+    ground_dimensions: $("#optGround").classList.contains("on"),
     provider: $("#optProvider").value,
     generation_model: $("#optGenModel").value.trim(),
     judge_model: $("#optJudgeModel").value.trim(),
@@ -648,6 +660,10 @@ $("#optIters").oninput = e => { $("#optItersOut").value = e.target.value; };
 $("#optVision").onclick = () => {
   const on = $("#optVision").classList.toggle("on");
   $("#optVision").setAttribute("aria-checked", String(on));
+};
+$("#optGround").onclick = () => {
+  const on = $("#optGround").classList.toggle("on");
+  $("#optGround").setAttribute("aria-checked", String(on));
 };
 
 $("#healthChip").onclick = () => {
