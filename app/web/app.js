@@ -167,6 +167,88 @@ async function loadExamples() {
   });
 }
 
+/* ═══════════════════════ token accounting ═══════════════════════ */
+
+/* Each agent event carries the *cumulative* counters from autofab, so the
+   cost of one call is the step between consecutive events. That is what
+   makes a per-agent breakdown possible at all - the job record only ever
+   holds the run total. */
+
+const AGENT_NAMES = {
+  plan: "planner", code: "coder", error_fix: "error refiner",
+  judge: "judge", refine: "refiner",
+};
+
+function resetUsage() {
+  S.usage = { seen: { input: 0, output: 0, calls: 0 }, byAgent: {} };
+  const strip = $("#usage");
+  if (strip) { strip.hidden = true; strip.innerHTML = ""; }
+}
+
+function noteUsage(phase, tokens) {
+  if (!tokens || !S.usage) return;
+  const input = tokens.input_tokens || 0;
+  const output = tokens.output_tokens || 0;
+  const calls = tokens.calls || 0;
+  const seen = S.usage.seen;
+
+  // Cumulative counters only ever climb; a drop means the run restarted, so
+  // rebase rather than recording a negative.
+  const step = {
+    input: Math.max(0, input - seen.input),
+    output: Math.max(0, output - seen.output),
+    calls: Math.max(0, calls - seen.calls),
+  };
+  S.usage.seen = { input, output, calls };
+
+  const name = AGENT_NAMES[phase] || phase;
+  const entry = S.usage.byAgent[name] || { input: 0, output: 0, calls: 0 };
+  entry.input += step.input;
+  entry.output += step.output;
+  entry.calls += step.calls;
+  S.usage.byAgent[name] = entry;
+  renderUsage();
+}
+
+const compact = n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+function renderUsage() {
+  const strip = $("#usage");
+  if (!strip || !S.usage) return;
+  const { seen, byAgent } = S.usage;
+  const total = seen.input + seen.output;
+
+  if (!total) {
+    // A catalogue part costs nothing, and saying so is the point - it is
+    // the difference between the two paths made visible.
+    if (S.catalog) {
+      strip.hidden = false;
+      strip.innerHTML =
+        `<span class="unone">No model call — this part came from the `
+        + `catalogue, so it cost no tokens.</span>`;
+    } else {
+      strip.hidden = true;
+    }
+    return;
+  }
+
+  const order = ["planner", "coder", "error refiner", "judge", "refiner"];
+  const parts = order
+    .filter(name => byAgent[name] && (byAgent[name].input + byAgent[name].output))
+    .map(name => {
+      const a = byAgent[name];
+      return `<span class="uagent"><b>${compact(a.input + a.output)}</b>`
+           + `<span>${name}${a.calls > 1 ? ` ×${a.calls}` : ""}</span></span>`;
+    });
+
+  strip.hidden = false;
+  strip.innerHTML =
+    `<span class="utot"><b>${total.toLocaleString()}</b> tokens · `
+    + `${seen.input.toLocaleString()} in · ${seen.output.toLocaleString()} out · `
+    + `${seen.calls} call${seen.calls === 1 ? "" : "s"}</span>`
+    + parts.join("");
+}
+
 /* ═══════════════════════ pipeline progress ═══════════════════════ */
 
 function renderStages(activeKey, detail) {
@@ -228,6 +310,7 @@ function handleEvent(event) {
     if (data && data.part_id) {
       S.catalog = data;
       renderStages("done", `${data.title} — from the catalogue`);
+      renderUsage();
       renderPlan(null);
       // No judge ran, so naming one in the Validation header would credit a
       // model that was never called.
@@ -269,6 +352,8 @@ function handleEvent(event) {
       && status === "ok") {
     setCode(data.code);
   }
+  if (data && data.tokens) noteUsage(phase, data.tokens);
+
   if (phase === "version" && status === "ok") {
     addVersion(data);
   }
@@ -491,6 +576,7 @@ async function generate() {
   S.converged = false;
   S.replay = false;
   S.catalog = null;
+  resetUsage();
   resetPill();
   $("#genBtn").disabled = true;
   $("#iters").innerHTML = "";
@@ -676,9 +762,16 @@ async function openJob(jobId) {
   $("#prompt").value = job.prompt;
   S.seq = (state.events || []).length;
   $("#plog").innerHTML = "";
-  (state.events || [])
-    .filter(e => e.phase === "log")
-    .forEach(e => appendLog(e.message));
+  // Replay the token accounting too: the job record keeps only the run
+  // total, so the per-agent split has to be rebuilt from the events.
+  resetUsage();
+  S.catalog = null;
+  (state.events || []).forEach(e => {
+    if (e.phase === "log") appendLog(e.message);
+    if (e.phase === "catalog" && e.data && e.data.part_id) S.catalog = e.data;
+    if (e.data && e.data.tokens) noteUsage(e.phase, e.data.tokens);
+  });
+  renderUsage();
 
   const started = (state.events || []).find(
     e => e.phase === "job" && e.status === "started" && e.data && e.data.llm);
@@ -789,6 +882,10 @@ addEventListener("keydown", e => {
     $("#lightbox").hidden = true;
     $("#diag").hidden = true;
     $("#sheet").classList.remove("on");
+    // The history drawer covers the page and swallows clicks, and its only
+    // exit was a small x. Escape closes every other overlay; it should
+    // close this one too.
+    $("#hist").classList.remove("open");
   }
   if (key === "d") $("#drawBtn").click();
 });

@@ -455,6 +455,7 @@ textarea.src{
 .iters{display:flex;gap:8px;padding:9px 12px;border-top:1px solid var(--line);
   background:var(--panel);overflow-x:auto;flex:none;min-height:64px;align-items:center}
 .iters:empty{display:none}
+.itersrow:has(.iters:empty):has(.usage[hidden]){display:none}
 .iter{flex:none;width:104px;border:1px solid var(--line);border-radius:var(--r);
   background:var(--panel-2);cursor:pointer;overflow:hidden;transition:.14s}
 .iter:hover{border-color:var(--accent-dim)}
@@ -468,6 +469,24 @@ textarea.src{
 .iter .ilabel i.edit{background:var(--accent)}
 .ihint{font-family:var(--mono);font-size:9px;letter-spacing:.08em;
   color:var(--ink-dim);padding-left:2px;flex:none}
+
+/* ---------- token usage ---------- */
+/* Sits in the attempts row rather than below it: a row of its own added
+   height the viewer could not spare, and put the numbers directly under
+   the centred toast, which covered them at exactly the moment you look. */
+.itersrow{display:flex;align-items:center;gap:12px;flex:none;
+  border-top:1px solid var(--line);background:var(--panel);min-height:64px}
+.itersrow:has(.iters:empty) .usage{padding-left:14px}
+.itersrow .iters{flex:1;border-top:none;min-height:0}
+.usage{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;
+  color:var(--ink-dim);padding:6px 14px;display:flex;gap:14px;
+  flex-wrap:wrap;justify-content:flex-end;align-items:baseline;
+  flex:none;max-width:52%;text-align:right}
+.usage b{color:var(--ink);font-weight:600}
+.usage .utot{color:var(--ink)}
+.usage .uagent{display:inline-flex;gap:5px;align-items:baseline}
+.usage .uagent span{color:var(--ink-dim)}
+.usage .unone{color:var(--ink-dim);font-style:italic}
 
 /* ---------- live pipeline detail ---------- */
 .pdetail{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;
