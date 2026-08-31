@@ -195,6 +195,35 @@ than switching silently.
 Bedrock is partner-operated, so [its pricing](https://aws.amazon.com/bedrock/pricing/)
 is separate from Anthropic's own.
 
+#### First run with real AWS credentials
+
+In order, because each step fails differently:
+
+```bash
+# 1. credentials resolve at all — this is what botocore will use
+aws sts get-caller-identity
+
+# 2. the region has Anthropic models enabled for THIS account
+aws bedrock list-foundation-models --region us-east-1 \
+  --by-provider anthropic --query 'modelSummaries[].modelId' --output table
+
+# 3. the app agrees, and says which credential source answered
+AWS_REGION=us-east-1 .venv/bin/python -m app.tools.doctor --provider bedrock
+```
+
+The doctor prints `provider bedrock  ready - us-east-1 via <source>`. If the
+model list in step 2 is empty, model access has not been granted in the
+Bedrock console for that region — credentials are fine and nothing will run.
+
+Set the model ids from step 2 in the app; they carry the `anthropic.` prefix
+and may be region-prefixed inference profiles (`us.anthropic....`) depending
+on what the account is entitled to.
+
+`bedrock:ListFoundationModels` is a separate permission from
+`bedrock:InvokeModel`. Without the first, step 2 and the app's model picker
+come back empty while generation still works — the picker falls back to the
+two defaults.
+
 **Keys** come from `.env`, or you can paste one into the app for the current
 server process. A pasted key is held in memory only — never written to disk,
 never logged, never sent back to the browser. Restarting clears it.
@@ -580,6 +609,9 @@ before anything is manufactured.
                                                     # with no API key
 .venv/bin/python -m app.tests.ui_edit_check        # a long edit chain in a
                                                     # browser, no API key
+.venv/bin/python -m app.tests.ui_stress_check      # drives the app badly on
+                                                    # purpose: clicking mid-run,
+                                                    # double-firing, reloading
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.test_bedrock         # AWS Bedrock wiring
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server

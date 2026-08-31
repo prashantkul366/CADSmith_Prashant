@@ -242,10 +242,8 @@ def main() -> int:
         "options": {"use_catalog": True}})["job"]
     state = wait(job2["id"])
     root = latest(state["job"])["iteration"]
-    state = edit(job2["id"], "make it 40 teeth")
-    first_edit = latest(state["job"])["iteration"]
-    state = edit(job2["id"], "make the face width 20mm")
-    second = latest(state["job"])["iteration"]
+    edit(job2["id"], "make it 40 teeth")
+    edit(job2["id"], "make the face width 20mm")
     # Now go back to the original and edit that instead.
     state = edit(job2["id"], "set the bore diameter to 10mm", version=root)
     branched = assignments(code_of(job2["id"], latest(state["job"])["iteration"]))

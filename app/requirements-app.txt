@@ -33,6 +33,12 @@ httpx
 # connection is re-signed by a company CA the OS trusts and certifi does not.
 truststore
 
+# AWS Bedrock as a model backend. Bedrock authenticates with AWS credentials
+# rather than an Anthropic API key, so boto3 does the credential resolution -
+# a profile, environment variables, an SSO session or an instance role.
+# Installs as a wheel from PyPI, so this needs no git.
+anthropic[bedrock]
+
 # ---------------------------------------------------------------------------
 # Standard part catalogue (optional, separate file)
 # ---------------------------------------------------------------------------

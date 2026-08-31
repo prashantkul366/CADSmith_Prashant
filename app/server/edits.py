@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 # A top-level parametric assignment: `name = 12.5  # mm`.  Anchored to column
 # zero so locals inside functions or loops are left alone.

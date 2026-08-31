@@ -14,7 +14,6 @@ Queued jobs wait rather than fail.
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 import traceback
@@ -22,14 +21,13 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from . import catalog_run
 from .edits import apply_changes, describe, plan_edit
 from .events import (
     EventSink,
     PHASE_EDIT,
-    PHASE_EXECUTE,
     PHASE_JOB,
     STATUS_FAILED,
     STATUS_INFO,

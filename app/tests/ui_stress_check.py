@@ -150,7 +150,6 @@ def main() -> int:
             for _ in range(5):
                 page.evaluate("document.querySelector('#genBtn').click()")
             page.wait_for_timeout(1500)
-            jobs_before = page.evaluate("S.jobId")
             settle(page)
             check("five rapid Generate clicks make one run",
                   page.evaluate("S.versions.length") >= 1,

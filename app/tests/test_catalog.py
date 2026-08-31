@@ -19,8 +19,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import cadquery as cq  # noqa: E402
-
 from app.catalog import parts, standards  # noqa: E402
 from app.server import edits  # noqa: E402
 

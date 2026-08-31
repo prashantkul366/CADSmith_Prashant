@@ -447,7 +447,15 @@ def check_port(args) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--provider", default=os.getenv("CADSMITH_PROVIDER", "custom"))
+    # The app's own default, not "custom" - running the doctor with no
+    # arguments used to fail three times over about a base URL for a
+    # provider nobody had chosen.
+    try:
+        from app.server.providers import DEFAULT_PROVIDER
+    except Exception:          # a broken install is what this tool diagnoses
+        DEFAULT_PROVIDER = "anthropic"
+    parser.add_argument("--provider",
+                        default=os.getenv("CADSMITH_PROVIDER", DEFAULT_PROVIDER))
     parser.add_argument("--generation-model", default="")
     parser.add_argument("--judge-model", default="")
     parser.add_argument("--timeout", type=float, default=30.0,
@@ -471,7 +479,19 @@ def main() -> int:
     print("\n" + "=" * 58)
     if _failures:
         print(f"{RED}{len(_failures)} problem(s){RESET}: {', '.join(_failures)}")
-        print("Fix these before starting the app.")
+        # A missing model backend is not the same as a broken install. The
+        # catalogue answers standard parts with no provider at all, so
+        # "fix these before starting" was wrong in the common case and sent
+        # people hunting for a key they did not need yet.
+        provider_only = all("provider" in name for name in _failures)
+        if provider_only:
+            print("These are all about the model backend. The app still runs:")
+            print("  standard parts - fasteners, bearings, gears, springs,")
+            print("  pulleys - are answered from the catalogue with no model")
+            print("  call, and recorded runs still replay. A custom part needs")
+            print("  a provider.")
+        else:
+            print("Fix these before starting the app.")
         return 1
     if _warnings:
         print(f"{YELLOW}Ready, with {len(_warnings)} caveat(s){RESET}: "

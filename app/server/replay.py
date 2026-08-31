@@ -21,7 +21,6 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from .events import EventSink, PHASE_JOB, STATUS_INFO
 

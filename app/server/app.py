@@ -146,7 +146,6 @@ def _probe_offscreen_render() -> dict:
 
 
 def _health() -> dict:
-    import os
 
     checks: dict[str, Any] = {}
 

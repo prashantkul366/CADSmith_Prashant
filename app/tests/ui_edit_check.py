@@ -139,7 +139,7 @@ def main() -> int:
                   and abs(across - expected_dia) < 0.4,
                   f"{across:.2f} mm across, want {expected_dia:g} "
                   f"· {seconds:.1f}s" if across else "no geometry")
-            check(f"   the box clears for the next change",
+            check("   the box clears for the next change",
                   page.locator("#cmdIn").input_value() == "",
                   repr(page.locator("#cmdIn").input_value()))
 

@@ -34,6 +34,31 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+def test_it_is_actually_installable() -> None:
+    """The dependency has to be declared, not just imported here.
+
+    This check exists because it broke: splitting the catalogue extras out
+    of requirements-app.txt truncated the file from that header onward, and
+    took the Bedrock line with it. Everything still worked in a venv that
+    already had boto3, and a fresh install silently lost Bedrock entirely -
+    which would have surfaced as an obscure ImportError on someone else's
+    machine, holding real AWS credentials.
+    """
+    print("\nThe dependency is declared, not just present here")
+    root = Path(__file__).resolve().parents[2]
+    declared = (root / "app" / "requirements-app.txt").read_text()
+    check("requirements-app.txt declares the Bedrock extra",
+          "anthropic[bedrock]" in declared,
+          "boto3 comes from it; without it Bedrock cannot authenticate")
+    try:
+        import boto3  # noqa: F401
+        import botocore  # noqa: F401
+        ok = True
+    except ImportError as error:
+        ok, boto3 = False, error
+    check("and it is importable in this environment", ok, str(boto3)[:60])
+
+
 def test_registration() -> None:
     print("\nThe provider is offered")
     spec = providers.BUILTIN.get("bedrock")
@@ -220,6 +245,7 @@ def test_pipeline_runs_through_it() -> None:
 
 
 def main() -> int:
+    test_it_is_actually_installable()
     test_registration()
     test_region_is_required()
     test_credentials_are_probed()

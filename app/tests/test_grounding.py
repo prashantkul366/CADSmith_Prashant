@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from autofab import agents  # noqa: E402
 
-from app.catalog import grounding, standards  # noqa: E402
+from app.catalog import grounding  # noqa: E402
 from app.server.events import EventSink, PHASE_GROUND  # noqa: E402
 from app.server.instrument import (  # noqa: E402
     RunContext, install_agent_hooks, set_context,
