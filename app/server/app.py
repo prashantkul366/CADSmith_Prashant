@@ -187,12 +187,18 @@ def _health() -> dict:
 
         described = catalog_router.describe()
         live = [name for name, present in described["backends"].items() if present]
-        checks["catalog"] = {
-            "ok": True,
-            "detail": (f"{len(described['families'])} part families"
-                       + (f" ({', '.join(live)})" if live else
-                          " (cq_gears and cq_warehouse not installed)")),
-        }
+        missing = [name for name, present in described["backends"].items()
+                   if not present]
+        detail = f"{len(described['families'])} part families"
+        if live:
+            detail += f" ({', '.join(live)})"
+        if missing:
+            # Actionable rather than merely factual: the usual reason these
+            # are absent is a machine without git, and the fix is one line.
+            detail += (f" - {', '.join(missing)} not installed; add gears and "
+                       f"the wider fastener range with "
+                       f"'pip install -r app/requirements-catalog.txt'")
+        checks["catalog"] = {"ok": True, "detail": detail}
     except Exception as exc:
         checks["catalog"] = {"ok": True,
                              "detail": f"catalogue unavailable: {exc}"}

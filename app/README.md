@@ -49,7 +49,21 @@ python -m venv .venv
 ```
 
 CadQuery 2.8 and VTK install as ordinary pip wheels, so the conda environment
-the main README describes is no longer required. Tested on Python 3.11.
+the main README describes is no longer required. **Python 3.11 or 3.12** —
+one catalogue dependency uses an API that Python 3.13 removed.
+
+That base install needs no `git`, on purpose. The gear and wider-fastener
+libraries are not published on PyPI and install over git, which a Windows
+laptop often does not have — in the same file they would fail the whole
+install with a confusing error. They are a separate, optional step:
+
+```powershell
+.venv\Scripts\python -m pip install -r app\requirements-catalog.txt
+```
+
+That one needs [Git for Windows](https://git-scm.com/download/win). Skip it
+and the app still runs; the catalogue just covers fewer families, and the
+diagnostics chip tells you so and gives you the command.
 
 **On Windows, keep the checkout out of OneDrive.** `.venv` runs to several
 hundred megabytes, and syncing it is slow and can lock files mid-install.

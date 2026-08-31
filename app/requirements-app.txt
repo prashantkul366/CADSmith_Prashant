@@ -34,32 +34,12 @@ httpx
 truststore
 
 # ---------------------------------------------------------------------------
-# Standard part catalogue (optional)
+# Standard part catalogue (optional, separate file)
 # ---------------------------------------------------------------------------
-# Both are Apache-2.0 and pinned to a commit rather than a tag: neither is
-# published on PyPI, so an unpinned git URL means a demo can break when
-# upstream moves. The app degrades gracefully if they are absent - the
-# catalogue simply covers fewer families - so removing these two lines is a
-# supported configuration, and app/tests/test_catalog_library.py checks it.
+# Gears and the wider fastener range live in app/requirements-catalog.txt.
+# They install from git, which needs Git installed and on PATH - commonly
+# absent on a Windows laptop, where it would fail this whole file with a
+# confusing error. Kept separate so the app always installs; without them
+# the catalogue simply covers fewer families and everything else runs.
 #
-# cq_gears: involute spur, helical, herringbone, ring, rack and bevel gears.
-# Verified: tip diameters match module x teeth + 2 modules exactly.
-cq_gears @ git+https://github.com/meadiode/cq_gears.git@e73874cf17a25447a99b1e7c22a4d5af38560e9c
-
-# cq_warehouse: 12 screw head types and 7 nut types across M1.6-M64, plus
-# sprockets, roller chain and ISO threads.
-#
-# Two caveats, both found by testing rather than assumed. Its washers are
-# broken in this revision - every standard, every size, a non-closed shell
-# with roughly twice the correct volume - so washers come from
-# app/catalog/parts.py instead and the router's verification step refuses to
-# serve one. And it imports importlib.resources.open_text, removed in Python
-# 3.13, so this pin needs Python 3.11 or 3.12.
-cq_warehouse @ git+https://github.com/gumyr/cq_warehouse.git@daa46507ecc429c0e2dce11d9d5ffd09b12a42af
-
-# AWS Bedrock as a model backend. Bedrock authenticates with AWS credentials
-# rather than an Anthropic API key, so boto3 does the credential resolution -
-# a profile, environment variables, an SSO session or an instance role.
-# Optional: without it every other provider still works and the app says
-# Bedrock needs boto3 rather than failing obscurely.
-anthropic[bedrock]
+#   pip install -r app/requirements-catalog.txt
