@@ -161,6 +161,65 @@ def main() -> int:
               "Rejected by the Judge" in rejected and "20.0mm" in rejected,
               rejected.replace("\n", " ")[:80])
 
+        # ---------------------------------------------------------------
+        # The path a person actually takes: pick a listed prompt, run it,
+        # then run another. Typing a prompt once is not the same journey.
+        print("\nStarting from a benchmark prompt")
+        sample = page.locator("#samples .sample").first
+        sample_id = sample.locator("b").inner_text()
+        sample.click()
+        page.wait_for_timeout(400)
+        typed = page.locator("#prompt").input_value()
+        check("clicking a listed prompt fills the box", bool(typed.strip()),
+              f"{sample_id}: {typed[:50]}")
+        check("the full prompt is used, not the truncated label",
+              "…" not in typed and len(typed) > 60, f"{len(typed)} chars")
+
+        plan_before = page.locator("#planBody").inner_text()
+        page.click("#genBtn")
+        page.wait_for_selector("#ovPipe:not([hidden])", timeout=15000)
+        page.wait_for_timeout(1500)
+        check("the previous run's design plan is cleared",
+              page.locator("#planBody").inner_text() != plan_before,
+              page.locator("#planBody").inner_text().replace("\n", " ")[:60])
+        check("the previous run's attempts are cleared",
+              page.locator("#iters .iter").count() == 0,
+              f"{page.locator('#iters .iter').count()} left over")
+        check("the previous verdict is cleared",
+              "Judge" not in page.locator("#valBody").inner_text(),
+              page.locator("#valBody").inner_text().replace("\n", " ")[:60])
+
+        page.wait_for_function(
+            "() => document.querySelectorAll('#iters .iter').length >= 2",
+            timeout=180000)
+        page.wait_for_timeout(3000)
+        check("the second run finished", page.locator("#ovPipe").is_hidden())
+        check("its verdict is shown",
+              "Accepted by the Judge" in page.locator("#valBody").inner_text())
+        page.screenshot(path=str(out / "23-second-run.png"))
+
+        # ---------------------------------------------------------------
+        print("\nA third run, straight after")
+        page.locator("#samples .sample").nth(1).click()
+        page.wait_for_timeout(400)
+        page.click("#genBtn")
+        page.wait_for_selector("#ovPipe:not([hidden])", timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#iters .iter').length >= 2",
+            timeout=180000)
+        page.wait_for_timeout(3000)
+        check("a third consecutive run works",
+              page.locator("#iters .iter").count() == 2
+              and page.locator("#ovPipe").is_hidden(),
+              f"{page.locator('#iters .iter').count()} attempts")
+
+        print("\nHistory after several runs")
+        page.click("#histBtn")
+        page.wait_for_timeout(900)
+        rows = page.locator("#hlist .hrow").count()
+        check("every run is listed", rows >= 3, f"{rows} runs")
+        page.click("#histClose")
+
         browser.close()
     stop_mock(mock)
 

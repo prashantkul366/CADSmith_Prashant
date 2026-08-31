@@ -120,7 +120,8 @@ class Handler(BaseHTTPRequestHandler):
 
         system = next((m.get("content", "") for m in messages
                        if m.get("role") == "system"), "")
-        text = self._reply_for(system if isinstance(system, str) else "")
+        text = self._reply_for(system if isinstance(system, str) else "",
+                               self._user_text(messages))
 
         if Handler.fail == "empty":
             self._json(200, {
@@ -136,9 +137,34 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- replies ------------------------------------------------------------
 
-    def _reply_for(self, system: str) -> str:
+    @staticmethod
+    def _user_text(messages: list) -> str:
+        """The user turn, flattened - it may be a list of content blocks."""
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(part.get("text", "") for part in content
+                                if part.get("type") == "text")
+        return ""
+
+    def _reply_for(self, system: str, user: str = "") -> str:
         if "Planner Agent" in system:
-            return self._maybe_wrap(json.dumps(PLAN))
+            # A Planner call starts a run, so reset here: otherwise the
+            # counter carries over and the second run is accepted on its
+            # first attempt, skipping the refinement loop.
+            Handler.seen_coder_calls = 0
+            # Echo the request into the description, as a real Planner would.
+            # A fixed string would make consecutive runs indistinguishable on
+            # screen, hiding whether the panel is actually being refreshed.
+            plan = dict(PLAN)
+            asked = " ".join(user.split())[:90]
+            plan["description"] = (f"Mock plan for: {asked}" if asked
+                                   else PLAN["description"])
+            return self._maybe_wrap(json.dumps(plan))
         if "Validator Agent" in system:
             # Reject the first attempt, accept what the Refiner produces.
             passed = Handler.seen_coder_calls > 1

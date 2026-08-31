@@ -11,8 +11,11 @@
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+// Escapes quotes too: this output is used inside attributes (data-prompt),
+// where an unescaped quote would end the attribute early.
 const esc = s => String(s ?? "").replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  .replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const fmt = n => (n === null || n === undefined || Number.isNaN(n)) ? "—"
   : (Number.isInteger(n) ? String(n) : (Math.round(n * 100) / 100).toString());
 
@@ -436,7 +439,16 @@ async function generate() {
   $("#plog").innerHTML = "";
   Viewer.clear();
   setCode("");
+  // Everything on the right belongs to the run that is being replaced, so
+  // clear it now rather than leaving the previous part's plan and verdict on
+  // screen until the new ones arrive.
+  $("#planBody").innerHTML =
+    `<div class="await">Planning…</div>`;
   $("#valBody").innerHTML = `<div class="await">Waiting for the first attempt…</div>`;
+  sheetSvg = null;
+  $("#drawBtn").disabled = true;
+  $("#cmdIn").disabled = true;
+  $("#applyBtn").disabled = true;
   showOverlay("pipe");
   renderStages("plan", "Sending the request");
 
