@@ -37,6 +37,7 @@ from .events import (
 from .providers import DEFAULT_PROVIDER, LLMConfig, resolve
 from .replay import clone_run, is_replayable, replay_into
 from .instrument import (
+    PipelineMessage,
     InstrumentedExecutor,
     InstrumentedPipeline,
     InstrumentedValidator,
@@ -314,7 +315,8 @@ class JobManager:
             )
         except Exception as exc:  # surfaced to the client, never swallowed
             job.status = STATUS_ERROR
-            job.error = f"{type(exc).__name__}: {exc}"
+            job.error = (str(exc) if isinstance(exc, PipelineMessage)
+                         else f"{type(exc).__name__}: {exc}")
             job.versions = list(ctx.versions)
             sink.emit(PHASE_JOB, STATUS_FAILED, job.error,
                       traceback=traceback.format_exc()[-4000:])
@@ -544,7 +546,8 @@ class JobManager:
                       iterations=len(job.versions))
         except Exception as exc:
             job.status = STATUS_ERROR
-            job.error = f"{type(exc).__name__}: {exc}"
+            job.error = (str(exc) if isinstance(exc, PipelineMessage)
+                         else f"{type(exc).__name__}: {exc}")
             sink.emit(PHASE_JOB, STATUS_FAILED, job.error, replayed=True)
         finally:
             job.finished_at = time.time()

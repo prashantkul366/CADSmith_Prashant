@@ -12,6 +12,7 @@ deterministic.
     python -m app.tools.mock_provider --fail novision     # refuses images
     python -m app.tools.mock_provider --fail empty        # reasoning-only reply
     python -m app.tools.mock_provider --fail hang         # never answers
+    python -m app.tools.mock_provider --fail refusal      # declines in prose
     python -m app.tools.mock_provider --delay 5           # slow but working
     python -m app.tools.mock_provider --part v_pulley     # always this part
 
@@ -120,6 +121,14 @@ class Handler(BaseHTTPRequestHandler):
         return ""
 
     def _reply_for(self, system: str, user: str = "") -> str:
+        if Handler.fail == "refusal":
+            # What a real model does with "write me a poem" or a request it
+            # declines: prose, no JSON. The Planner parses strictly, so this
+            # is the shape of every off-topic prompt in production.
+            return ("I can't help with that request. I'm designed to produce "
+                    "CadQuery scripts for mechanical parts, and this doesn't "
+                    "describe one.")
+
         # Every agent but the Judge is handed the original request, so the
         # part is re-chosen per call rather than trusted to stick. The Judge
         # falls back to whatever the Planner picked for this run.
@@ -182,7 +191,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8123)
     parser.add_argument("--fail", default="none",
                         choices=["none", "429", "500", "novision", "badjson",
-                                 "empty", "hang"],
+                                 "empty", "hang", "refusal"],
                         help="Misbehave in a specific way, to test handling.")
     parser.add_argument("--delay", type=float, default=0.0,
                         help="Seconds to wait before each reply.")

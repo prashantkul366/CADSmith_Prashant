@@ -30,7 +30,34 @@ _ASSIGNMENT = re.compile(
     r"^(?P<name>[A-Za-z_]\w*)(?P<gap>\s*=\s*)(?P<value>-?\d+(?:\.\d+)?)(?P<rest>\s*(?:#.*)?)$"
 )
 
-_NUMBER = re.compile(r"(-?\d+(?:\.\d+)?)")
+#: Length units, converted to the millimetres every script is written in.
+#: "make it 1.5cm thick" used to set thickness to 1.5 - wrong by a factor of
+#: ten, and worse than an error because it looks like it worked.
+#:
+#: Bare "m" and bare "in" are deliberately absent: "3 in total" is a
+#: preposition, not three inches, and a wrong factor of 25 is far worse than
+#: not recognising a unit nobody writes for a machined part.
+_UNITS = {
+    "mm": 1.0, "millimeter": 1.0, "millimeters": 1.0,
+    "millimetre": 1.0, "millimetres": 1.0,
+    "cm": 10.0, "centimeter": 10.0, "centimeters": 10.0,
+    "centimetre": 10.0, "centimetres": 10.0,
+    "inch": 25.4, "inches": 25.4, '"': 25.4,
+}
+_UNIT_PATTERN = "|".join(
+    sorted((re.escape(u) for u in _UNITS), key=len, reverse=True))
+
+#: Exponent notation included deliberately. Without it "set thickness to 1e6"
+#: matched "1" and "400"-style fragments and quietly applied the mantissa - a
+#: part six orders of magnitude too small, with nothing said.
+_NUMBER = re.compile(
+    rf"(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*({_UNIT_PATTERN})?\b",
+    re.I)
+
+#: Below this the OpenCASCADE kernel stops holding a solid together: a 1e-6mm
+#: box builds but comes back isValid() == False, which would be reported as a
+#: broken solid rather than an impossible request.
+MIN_DIMENSION = 1e-3
 
 # Words a person uses for a dimension, mapped to the tokens that tend to
 # appear in generated parameter names.
@@ -230,8 +257,29 @@ def _score(parameter: Parameter, words: set[str], counting: bool) -> int:
     return score
 
 
+def _measurements(instruction: str) -> list[tuple[int, float]]:
+    """Every number in the instruction, in millimetres, with its position.
+
+    Position is kept so ``_nearest_number`` can pick the value closest to the
+    parameter being named, and so both callers agree on the same scaled
+    figures - reading the unit in one place and not the other would put a
+    centimetre value through unconverted.
+    """
+    found: list[tuple[int, float]] = []
+    for match in _NUMBER.finditer(instruction):
+        try:
+            value = float(match.group(1))
+        except (ValueError, OverflowError):
+            continue
+        if value != value or value in (float("inf"), float("-inf")):
+            continue          # 1e400 parses to inf; not a dimension
+        unit = (match.group(2) or "").lower()
+        found.append((match.start(), value * _UNITS.get(unit, 1.0)))
+    return found
+
+
 def _numbers(instruction: str) -> list[float]:
-    values = [float(v) for v in _NUMBER.findall(instruction)]
+    values = [value for _, value in _measurements(instruction)]
     for word, value in _WORD_NUMBERS.items():
         if re.search(rf"\b{word}\b", instruction.lower()):
             values.append(float(value))
@@ -316,8 +364,15 @@ def plan_edit(code: str, instruction: str) -> EditPlan:
     else:
         new_value = amount
 
+    if new_value != new_value or new_value in (float("inf"), float("-inf")):
+        return EditPlan([], f"that is not a number {best.name} can take")
     if new_value <= 0:
         return EditPlan([], f"that would set {best.name} to {new_value:g}")
+    if new_value < MIN_DIMENSION:
+        return EditPlan(
+            [], f"{new_value:g} is below what the kernel can hold - a solid "
+                f"that small comes back invalid rather than small. The "
+                f"smallest workable value is about {MIN_DIMENSION:g}mm")
     if abs(new_value - best.value) < 1e-9:
         return EditPlan([], f"{best.name} is already {best.value:g}")
 
@@ -337,10 +392,10 @@ def _nearest_number(text: str, parameter: Parameter, values: list[float]) -> flo
         return values[-1]
 
     best, best_distance = values[0], None
-    for match in _NUMBER.finditer(text):
-        distance = abs(match.start() - anchor)
+    for position, value in _measurements(text):
+        distance = abs(position - anchor)
         if best_distance is None or distance < best_distance:
-            best, best_distance = float(match.group(1)), distance
+            best, best_distance = value, distance
     return best
 
 

@@ -33,14 +33,72 @@ for i in range(hole_count):
 """
 
 
+failures: list[str] = []
+
+
+def check(label: str, ok: bool, detail: str = "") -> None:
+    print(f"  {'PASS' if ok else 'FAIL'}  {label}{(' - ' + detail) if detail else ''}")
+    if not ok:
+        failures.append(label)
+
+
+def test_units() -> None:
+    """A centimetre is ten millimetres, and the script is written in mm.
+
+    "make it 1.5cm thick" used to set thickness to 1.5 - out by a factor of
+    ten, silently, and looking for all the world like it had worked.
+    """
+    print("\nUnits are converted, not ignored")
+    code = ("import cadquery as cq\n"
+            "thickness = 10.0\n"
+            "width = 40.0\n"
+            "result = cq.Workplane('XY').box(width, width, thickness)\n")
+    cases = [
+        ("make it 15mm thick", 15.0),
+        ("make it 1.5cm thick", 15.0),
+        ("make it 2 cm thick", 20.0),
+        ("make it 1 inch thick", 25.4),
+        ("make it 0.5 inches thick", 12.7),
+        ("make it 15 millimetres thick", 15.0),
+        ("set thickness to 12", 12.0),        # no unit: millimetres
+    ]
+    for instruction, expected in cases:
+        plan = plan_edit(code, instruction)
+        got = plan.changes[0].new if plan.changes else None
+        check(f"'{instruction}'", got is not None
+              and abs(got - expected) < 1e-6,
+              f"{got} (want {expected})")
+
+    # "in" as a preposition must not become inches - a factor of 25 in the
+    # wrong direction is worse than not supporting the unit at all.
+    plan = plan_edit(code, "make it 3 in total, set thickness to 20")
+    check("'3 in total' is not three inches",
+          plan.changes and abs(plan.changes[0].new - 20.0) < 1e-6,
+          str(plan.changes[0].new if plan.changes else plan.reason))
+
+
+def test_impossible_values() -> None:
+    print("\nValues the kernel cannot hold are refused")
+    code = "import cadquery as cq\nthickness = 10.0\nresult = cq.Workplane('XY').box(5,5,thickness)\n"
+    for instruction, why in [
+        ("set thickness to 0.0000001", "below the kernel's tolerance"),
+        ("set thickness to 1e400", "not a finite number"),
+        ("set thickness to -5", "negative"),
+    ]:
+        plan = plan_edit(code, instruction)
+        check(f"'{instruction}' refused ({why})", not plan.changes,
+              plan.reason[:60] if not plan.changes else str(plan.changes))
+
+    # ...but scientific notation that IS a number must be read properly.
+    plan = plan_edit(code, "set thickness to 1e3")
+    check("'1e3' is a thousand, not one",
+          plan.changes and plan.changes[0].new == 1000.0,
+          str(plan.changes[0].new if plan.changes else plan.reason))
+
+
 def main() -> int:
-    failures: list[str] = []
-
-    def check(label: str, ok: bool, detail: str = "") -> None:
-        print(f"  {'PASS' if ok else 'FAIL'}  {label}{(' - ' + detail) if detail else ''}")
-        if not ok:
-            failures.append(label)
-
+    test_units()
+    test_impossible_values()
     print("\nParameter extraction")
     found = parameters(CODE)
     check("top-level parameters found", len(found) == 7, str(sorted(found)))

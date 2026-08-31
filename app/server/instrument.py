@@ -61,6 +61,16 @@ from .events import (
 _ITER_RE = re.compile(r"_iter(\d+)$")
 
 
+class PipelineMessage(RuntimeError):
+    """An error whose text was written for the person reading it.
+
+    Ordinary failures are reported as "TypeError: ..." so the class is
+    visible, which is right when it came from the kernel or the network.
+    These did not: prefixing one with RuntimeError buries a sentence someone
+    can act on under a word that means nothing to them.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Run context
 # ---------------------------------------------------------------------------
@@ -85,6 +95,9 @@ class RunContext:
     #: Which model backend this job runs against. ``None`` means the stock
     #: Anthropic client, exactly as the published pipeline uses.
     llm: Optional[LLMConfig] = None
+    #: The last raw text a model returned, kept so a JSON parse failure can
+    #: show what actually came back instead of a bare JSONDecodeError.
+    last_reply: str = ""
     #: Whether the Planner is given standard dimensions for whatever the
     #: request names. Off reproduces the published behaviour exactly, which
     #: is what makes it an ablation rather than a setting.
@@ -170,7 +183,8 @@ def install_agent_hooks() -> None:
                 ctx.emit(
                     phase,
                     STATUS_FAILED,
-                    f"{type(exc).__name__}: {exc}",
+                    str(exc) if isinstance(exc, PipelineMessage)
+                    else f"{type(exc).__name__}: {exc}",
                     ms=(time.time() - started) * 1000,
                 )
                 raise
@@ -200,6 +214,20 @@ def install_agent_hooks() -> None:
     # Gated on the run context, like everything else here: outside the web
     # app this is a pass-through, so run.py and the benchmark scripts see the
     # published behaviour untouched.
+    # Every agent reaches the model through _call_claude, so this is the one
+    # place the raw reply can be captured - needed to explain a parse failure
+    # in terms of what came back rather than where the parser stopped.
+    _orig_call = agents._call_claude
+
+    def _call_claude(*args, **kwargs):
+        reply = _orig_call(*args, **kwargs)
+        ctx = _current.get()
+        if ctx is not None and isinstance(reply, str):
+            ctx.last_reply = reply
+        return reply
+
+    agents._call_claude = _call_claude
+
     _plan_inner = agents.plan
 
     def grounded_plan(prompt, *args, **kwargs):
@@ -215,7 +243,21 @@ def install_agent_hooks() -> None:
             standards=[fact.standard for fact in facts],
             added_chars=len(grounded) - len(prompt),
         )
-        return _plan_inner(grounded, *args, **kwargs)
+        try:
+            return _plan_inner(grounded, *args, **kwargs)
+        except json.JSONDecodeError:
+            # The overwhelmingly common cause is a prompt the model declined
+            # or did not read as a part - "write me a poem", an insult, a
+            # question. A bare JSONDecodeError makes that look like a fault
+            # in the app.
+            said = " ".join((ctx.last_reply or "").split())[:220]
+            raise PipelineMessage(
+                "The Planner replied with prose instead of a design plan, "
+                "which usually means the model did not treat this as a "
+                "request for a physical part. Describe a part to make - "
+                "its shape, size and features."
+                + (f' The model said: "{said}"' if said else "")
+            ) from None
 
     agents.plan = wrap(
         grounded_plan,
