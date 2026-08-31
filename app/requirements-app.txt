@@ -56,3 +56,10 @@ cq_gears @ git+https://github.com/meadiode/cq_gears.git@e73874cf17a25447a99b1e7c
 # serve one. And it imports importlib.resources.open_text, removed in Python
 # 3.13, so this pin needs Python 3.11 or 3.12.
 cq_warehouse @ git+https://github.com/gumyr/cq_warehouse.git@daa46507ecc429c0e2dce11d9d5ffd09b12a42af
+
+# AWS Bedrock as a model backend. Bedrock authenticates with AWS credentials
+# rather than an Anthropic API key, so boto3 does the credential resolution -
+# a profile, environment variables, an SSO session or an instance role.
+# Optional: without it every other provider still works and the app says
+# Bedrock needs boto3 rather than failing obscurely.
+anthropic[bedrock]

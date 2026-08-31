@@ -852,6 +852,19 @@ function applyProvider(providerId) {
   $("#keyRow").hidden = !(needsSetup || provider.key_from_session);
   $("#providerBase").hidden = provider.id !== "custom";
   $("#providerBase").value = provider.base_url || "";
+
+  // Bedrock authenticates with AWS credentials, not an Anthropic key, so
+  // showing a key field there would send someone hunting for a key that
+  // does not exist. It needs a region; the credentials themselves come from
+  // the AWS chain and never pass through this app.
+  const bedrock = provider.kind === "bedrock";
+  $("#awsRegion").hidden = !bedrock;
+  $("#awsProfile").hidden = !bedrock;
+  $("#providerKey").hidden = bedrock;
+  if (bedrock && !$("#awsRegion").value) {
+    $("#awsRegion").value = provider.aws_region || "";
+    $("#awsProfile").value = provider.aws_profile || "";
+  }
   $("#providerKey").placeholder = provider.needs_key
     ? "API key (memory only)" : "API key (not required)";
 
@@ -896,6 +909,17 @@ function updateProviderNote() {
     return;
   }
   note.className = "optnote ok";
+  if (provider.kind === "bedrock") {
+    // Say where the credentials came from: on Bedrock "ready" can mean an
+    // instance role, an SSO session or a profile, and which one it picked
+    // is exactly what you need when the wrong account answers.
+    note.textContent =
+      `Ready — ${provider.aws_region}`
+      + (provider.aws_profile ? `, profile ${provider.aws_profile}` : "")
+      + (provider.aws_credentials
+         ? `, credentials from ${provider.aws_credentials}.` : ".");
+    return;
+  }
   note.textContent = provider.local
     ? "Running locally — nothing leaves this machine."
     : "Ready.";
@@ -927,7 +951,8 @@ async function saveProviderKey() {
   try {
     const updated = await API.setProviderKey(
       provider.id, $("#providerKey").value.trim(),
-      $("#providerBase").value.trim());
+      $("#providerBase").value.trim(),
+      $("#awsRegion").value.trim(), $("#awsProfile").value.trim());
     Object.assign(provider, updated);
     $("#providerKey").value = "";
     applyProvider(provider.id);

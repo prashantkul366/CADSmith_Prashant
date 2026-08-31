@@ -46,7 +46,7 @@ REQUEST_TIMEOUT = float(os.getenv("CADSMITH_LLM_TIMEOUT", "600"))
 class ProviderSpec:
     id: str
     label: str
-    kind: str                     # "anthropic" | "openai_compatible"
+    kind: str                     # "anthropic" | "openai_compatible" | "bedrock"
     base_url: str = ""
     env_key: str = ""
     env_base_url: str = ""
@@ -57,6 +57,8 @@ class ProviderSpec:
     default_judge_model: str = ""
     local: bool = False
     hint: str = ""
+    #: Bedrock only: where the AWS region comes from when none is chosen.
+    env_region: str = ""
 
 
 BUILTIN: dict[str, ProviderSpec] = {
@@ -70,6 +72,23 @@ BUILTIN: dict[str, ProviderSpec] = {
         default_generation_model="claude-sonnet-4-5-20250929",
         default_judge_model="claude-opus-4-20250514",
         hint="Set ANTHROPIC_API_KEY in .env",
+    ),
+    "bedrock": ProviderSpec(
+        id="bedrock",
+        label="AWS Bedrock (Anthropic)",
+        kind="bedrock",
+        # Bedrock authenticates with AWS credentials, not an Anthropic key -
+        # env vars, a named profile, an SSO session or an instance role, all
+        # resolved by botocore. There is nothing to paste into a key field.
+        needs_key=False,
+        env_region="AWS_REGION",
+        # Same split the pipeline uses everywhere: a mid-tier model writes
+        # the CadQuery, a stronger independent one judges it. Bedrock model
+        # ids carry an "anthropic." prefix.
+        default_generation_model="anthropic.claude-sonnet-5",
+        default_judge_model="anthropic.claude-opus-5",
+        hint="Set AWS_REGION and your usual AWS credentials "
+             "(AWS_PROFILE, env vars, SSO or an instance role)",
     ),
     "openai": ProviderSpec(
         id="openai",
@@ -120,7 +139,28 @@ DEFAULT_PROVIDER = "anthropic"
 
 _session_keys: dict[str, str] = {}
 _session_base_urls: dict[str, str] = {}
+#: Bedrock: region and profile *name* chosen in the app. Neither is a secret -
+#: the credentials themselves stay with botocore and never reach this process.
+_session_regions: dict[str, str] = {}
+_session_profiles: dict[str, str] = {}
 _keys_lock = threading.Lock()
+
+
+def set_session_aws(provider_id: str, region: str = "",
+                    profile: str = "") -> None:
+    """Choose a Bedrock region and profile for this server process.
+
+    Deliberately separate from ``set_session_key``: Bedrock has no key to
+    hold, and treating a region like a secret would be misleading in both
+    directions - it is safe to display, and it is not what authenticates you.
+    """
+    with _keys_lock:
+        for store, value in ((_session_regions, region),
+                             (_session_profiles, profile)):
+            if value:
+                store[provider_id] = value
+            elif provider_id in store:
+                del store[provider_id]
 
 
 def set_session_key(provider_id: str, api_key: str = "",
@@ -137,6 +177,14 @@ def set_session_key(provider_id: str, api_key: str = "",
             del _session_base_urls[provider_id]
 
 
+def _profile_for(spec: ProviderSpec) -> str:
+    if spec.kind != "bedrock":
+        return ""
+    with _keys_lock:
+        override = _session_profiles.get(spec.id, "")
+    return override or os.getenv("AWS_PROFILE", "")
+
+
 def clear_session_keys() -> None:
     with _keys_lock:
         _session_keys.clear()
@@ -147,6 +195,76 @@ def _api_key_for(spec: ProviderSpec) -> str:
     with _keys_lock:
         override = _session_keys.get(spec.id, "")
     return override or (os.getenv(spec.env_key, "") if spec.env_key else "")
+
+
+def _region_for(spec: ProviderSpec) -> str:
+    """The AWS region for Bedrock, in the order AWS tooling itself uses.
+
+    A pasted region is held for this process like a session key; otherwise
+    AWS_REGION, then AWS_DEFAULT_REGION, then whatever the active profile
+    configures. Bedrock will not accept a request without one.
+    """
+    if spec.kind != "bedrock":
+        return ""
+    with _keys_lock:
+        override = _session_regions.get(spec.id, "")
+    if override:
+        return override
+    for name in (spec.env_region, "AWS_DEFAULT_REGION"):
+        if name and os.getenv(name):
+            return os.getenv(name, "")
+    try:
+        import botocore.session
+
+        return botocore.session.get_session().get_config_variable("region") or ""
+    except Exception:
+        return ""
+
+
+_aws_probe_cache: tuple[float, tuple[bool, str]] | None = None
+_AWS_PROBE_TTL = 30.0
+
+
+def _aws_credentials_found(force: bool = False) -> tuple[bool, str]:
+    """Whether botocore can resolve credentials, and where from.
+
+    Reported rather than assumed: "no ANTHROPIC_API_KEY" is a clear failure,
+    but AWS credentials come from six places and silently having none is the
+    usual way a Bedrock demo dies.
+
+    Cached for a few seconds, and the instance-metadata leg of the chain is
+    given a short timeout. The health endpoint calls this on every request,
+    and on a host where IMDS is firewalled rather than absent the default
+    chain waits seconds each time.
+    """
+    global _aws_probe_cache
+    now = time.time()
+    if not force and _aws_probe_cache is not None:
+        stamped, value = _aws_probe_cache
+        if now - stamped < _AWS_PROBE_TTL:
+            return value
+
+    result: tuple[bool, str]
+    try:
+        import botocore.session
+        from botocore.config import Config
+    except ImportError:
+        result = (False,
+                  "boto3 is not installed - pip install 'anthropic[bedrock]'")
+    else:
+        try:
+            session = botocore.session.get_session()
+            session.set_default_client_config(
+                Config(connect_timeout=2, read_timeout=2,
+                       retries={"max_attempts": 1}))
+            credentials = session.get_credentials()
+            result = ((False, "no AWS credentials found") if credentials is None
+                      else (True, getattr(credentials, "method", "aws") or "aws"))
+        except Exception as error:                   # pragma: no cover
+            result = (False, f"{type(error).__name__}: {error}")
+
+    _aws_probe_cache = (now, result)
+    return result
 
 
 def _base_url_for(spec: ProviderSpec) -> str:
@@ -170,9 +288,14 @@ class LLMConfig:
     generation_model: str
     judge_model: str
     judge_vision: bool = True
+    #: Bedrock only. Never a secret - the region and profile *name* are safe
+    #: to show; the credentials themselves are resolved by botocore and never
+    #: pass through this process.
+    aws_region: str = ""
+    aws_profile: str = ""
 
     def redacted(self) -> dict:
-        return {
+        out = {
             "provider": self.provider,
             "base_url": self.base_url,
             "generation_model": self.generation_model,
@@ -180,6 +303,10 @@ class LLMConfig:
             "judge_vision": self.judge_vision,
             "has_key": bool(self.api_key),
         }
+        if self.kind == "bedrock":
+            out["aws_region"] = self.aws_region
+            out["aws_profile"] = self.aws_profile
+        return out
 
 
 def resolve(
@@ -198,6 +325,8 @@ def resolve(
         judge_model=judge_model or spec.default_judge_model
                     or generation_model or spec.default_generation_model,
         judge_vision=judge_vision,
+        aws_region=_region_for(spec),
+        aws_profile=_profile_for(spec),
     )
 
 
@@ -210,6 +339,19 @@ def problems(config: LLMConfig) -> list[str]:
     if spec.needs_key and not config.api_key:
         issues.append(
             f"No API key for {spec.label}. {spec.hint}, or paste one in the app.")
+    if spec.kind == "bedrock":
+        if not config.aws_region:
+            issues.append(
+                "No AWS region for Bedrock. Set AWS_REGION in .env, or "
+                "choose one in the app - Bedrock will not accept a request "
+                "without a region.")
+        found, detail = _aws_credentials_found()
+        if not found:
+            issues.append(
+                f"Bedrock cannot authenticate: {detail}. It uses AWS "
+                f"credentials, not an Anthropic API key - configure "
+                f"AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, an "
+                f"SSO session, or an instance role.")
     if spec.kind == "openai_compatible" and not config.base_url:
         issues.append(f"No base URL for {spec.label}. {spec.hint}.")
     if not config.generation_model:
@@ -228,6 +370,8 @@ def list_models(provider_id: str, timeout: float = 6.0) -> list[str]:
     spec = BUILTIN.get(provider_id)
     if spec is None:
         return []
+    if spec.kind == "bedrock":
+        return _list_bedrock_models(spec, timeout=timeout)
 
     base_url = _base_url_for(spec)
     api_key = _api_key_for(spec)
@@ -254,6 +398,43 @@ def list_models(provider_id: str, timeout: float = 6.0) -> list[str]:
     names = [e.get("id") or e.get("name") for e in entries
              if isinstance(e, dict)]
     return sorted(n for n in names if n)
+
+
+def _list_bedrock_models(spec: ProviderSpec, timeout: float = 6.0) -> list[str]:
+    """What this AWS account can actually invoke, asked of Bedrock itself.
+
+    ListFoundationModels needs the ``bedrock:ListFoundationModels`` permission,
+    which is separate from ``bedrock:InvokeModel`` - a role that can run the
+    pipeline perfectly well may not be allowed to enumerate. So a failure here
+    is not an error: fall back to the two defaults rather than presenting an
+    empty picker as if nothing were available.
+    """
+    region = _region_for(spec)
+    if not region:
+        return []
+    try:
+        import boto3
+        from botocore.config import Config
+
+        session_kwargs = {}
+        profile = _profile_for(spec)
+        if profile:
+            session_kwargs["profile_name"] = profile
+        session = boto3.Session(**session_kwargs)
+        client = session.client(
+            "bedrock", region_name=region,
+            config=Config(connect_timeout=timeout, read_timeout=timeout,
+                          retries={"max_attempts": 1}))
+        payload = client.list_foundation_models(byProvider="anthropic")
+    except Exception:
+        return [spec.default_generation_model, spec.default_judge_model]
+
+    names = {entry.get("modelId") for entry in payload.get("modelSummaries", [])
+             if entry.get("modelId")}
+    # Bedrock also exposes cross-region inference profiles ("us.anthropic...")
+    # which are what many accounts are actually entitled to invoke. Keep both.
+    return sorted(n for n in names if "anthropic" in n) or [
+        spec.default_generation_model, spec.default_judge_model]
 
 
 _reachable_cache: dict[str, tuple[float, bool]] = {}
@@ -290,14 +471,21 @@ def status() -> list[dict]:
         api_key = _api_key_for(spec)
         base_url = _base_url_for(spec)
         ready = (not spec.needs_key or bool(api_key)) and (
-            spec.kind == "anthropic" or bool(base_url))
+            spec.kind in ("anthropic", "bedrock") or bool(base_url))
+        # Needing no key is not evidence of anything for Bedrock either: it
+        # is ready only when a region and real AWS credentials both resolve.
+        if spec.kind == "bedrock":
+            ready = bool(_region_for(spec)) and _aws_credentials_found()[0]
         # For a local server, having no key to check is not evidence of
         # anything - ask whether it is running.
         if ready and spec.local:
             ready = _reachable(spec, base_url)
         with _keys_lock:
-            from_session = spec.id in _session_keys or spec.id in _session_base_urls
-        out.append({
+            from_session = (spec.id in _session_keys
+                            or spec.id in _session_base_urls
+                            or spec.id in _session_regions
+                            or spec.id in _session_profiles)
+        entry = {
             "id": spec.id,
             "label": spec.label,
             "kind": spec.kind,
@@ -311,7 +499,18 @@ def status() -> list[dict]:
                      if spec.local and not ready else spec.hint),
             "default_generation_model": spec.default_generation_model,
             "default_judge_model": spec.default_judge_model,
-        })
+        }
+        if spec.kind == "bedrock":
+            found, source = _aws_credentials_found()
+            entry["aws_region"] = _region_for(spec)
+            entry["aws_profile"] = _profile_for(spec)
+            entry["aws_credentials"] = source if found else ""
+            if not ready:
+                entry["hint"] = (
+                    "Bedrock needs an AWS region"
+                    if not entry["aws_region"] else
+                    f"AWS credentials not found ({source}). {spec.hint}")
+        out.append(entry)
     return out
 
 
@@ -376,6 +575,23 @@ def _to_openai_messages(system: str, messages: list) -> list[dict]:
                 })
         out.append({"role": message.get("role", "user"), "content": parts})
     return out
+
+
+def _role_for(system: str) -> str:
+    """Judge or generation, decided by the agent's own system prompt.
+
+    Keyed on the prompt rather than the model id hardcoded at the call site,
+    so the two roles stay distinguishable however they are configured.
+    """
+    try:
+        from autofab import agents
+
+        if system and system == agents.VALIDATOR_SYSTEM:
+            return "judge"
+    except Exception:
+        pass
+    return "judge" if system.startswith("You are the Validator Agent") \
+        else "generation"
 
 
 def _strip_images(messages: list[dict]) -> tuple[list[dict], bool]:
@@ -486,21 +702,7 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def _role_for(system: str) -> str:
-        """Judge or generation, decided by the agent's own system prompt.
-
-        Keyed on the prompt rather than the model id hardcoded at the call
-        site, so the two roles stay distinguishable however they are
-        configured.
-        """
-        try:
-            from autofab import agents
-
-            if system and system == agents.VALIDATOR_SYSTEM:
-                return "judge"
-        except Exception:
-            pass
-        return "judge" if system.startswith("You are the Validator Agent") \
-            else "generation"
+        return _role_for(system)
 
     def _post(self, model: str, messages: list[dict],
               max_tokens: int) -> tuple[str, _Usage]:
@@ -578,4 +780,78 @@ def build_client(config: LLMConfig, on_note=None):
         import anthropic
 
         return anthropic.Anthropic(api_key=config.api_key)
+    if config.kind == "bedrock":
+        return _bedrock_client(config, on_note=on_note)
     return OpenAICompatibleClient(config, on_note=on_note)
+
+
+class BedrockClient:
+    """The Bedrock SDK client, with the model id chosen by role.
+
+    ``autofab.agents`` hardcodes its model ids at the call site
+    (``claude-sonnet-4-5-20250929`` to generate, ``claude-opus-4-20250514``
+    to judge). Those are Anthropic-API ids; Bedrock wants its own, prefixed
+    ``anthropic.``. Handing the SDK client straight to the agents would send
+    an id Bedrock has never heard of, and the run would die on the first call
+    with a validation error naming a model nobody chose.
+
+    So this substitutes the configured model by role, exactly as the
+    OpenAI-compatible shim does - but it is a much thinner thing, because
+    Bedrock speaks the Messages API natively. Nothing about the request shape
+    is translated; only the model id is replaced.
+    """
+
+    def __init__(self, inner, config: LLMConfig, on_note=None):
+        self._inner = inner
+        self.config = config
+        self._on_note = on_note
+
+    @property
+    def messages(self) -> "BedrockClient":
+        return self
+
+    def create(self, *, model: str = "", system: str = "",
+               messages: Optional[list] = None, **kwargs: Any):
+        role = _role_for(system)
+        target = (self.config.judge_model if role == "judge"
+                  else self.config.generation_model)
+
+        payload = list(messages or [])
+        if role == "judge" and not self.config.judge_vision:
+            payload, _ = _strip_images(payload)
+
+        return self._inner.messages.create(
+            model=target, system=system, messages=payload, **kwargs)
+
+    def __getattr__(self, name):        # anything else, straight through
+        return getattr(self._inner, name)
+
+
+def _bedrock_client(config: LLMConfig, on_note=None):
+    """An Anthropic client backed by AWS Bedrock.
+
+    The Mantle client speaks the Messages API, so it exposes the same
+    ``messages.create`` surface as the first-party SDK and the whole pipeline
+    works through it unchanged - no shim, unlike the OpenAI-compatible path.
+
+    Credentials are never passed in: botocore resolves them from the profile,
+    environment, SSO session or instance role, which is what makes an IAM
+    role work at all. Only the region and the profile *name* come from here.
+    """
+    import anthropic
+
+    kwargs: dict = {"aws_region": config.aws_region}
+    if config.aws_profile:
+        kwargs["aws_profile"] = config.aws_profile
+
+    # The Mantle endpoint is the current path. Some accounts and regions are
+    # still on the older bedrock-runtime InvokeModel route, so allow falling
+    # back rather than leaving someone stuck.
+    if os.getenv("CADSMITH_BEDROCK_LEGACY", "").strip().lower() in ("1", "true", "yes"):
+        if on_note:
+            on_note("Bedrock: using the legacy bedrock-runtime InvokeModel path "
+                    "(CADSMITH_BEDROCK_LEGACY is set).")
+        return BedrockClient(anthropic.AnthropicBedrock(**kwargs), config,
+                             on_note=on_note)
+    return BedrockClient(anthropic.AnthropicBedrockMantle(**kwargs), config,
+                         on_note=on_note)

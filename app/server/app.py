@@ -380,10 +380,17 @@ async def set_provider_key(provider_id: str, request: Request) -> JSONResponse:
     body = await _json_body(request)
     api_key = (body.get("api_key") or "").strip()
     base_url = (body.get("base_url") or "").strip()
-    if len(api_key) > 500 or len(base_url) > 500:
+    region = (body.get("aws_region") or "").strip()
+    profile = (body.get("aws_profile") or "").strip()
+    if any(len(value) > 500 for value in (api_key, base_url, region, profile)):
         raise HTTPException(status_code=400, detail="Value is too long.")
 
     providers.set_session_key(provider_id, api_key=api_key, base_url=base_url)
+    # Bedrock has no key to hold: what it needs is a region, and optionally a
+    # named profile. Neither is a secret - the credentials themselves stay
+    # with botocore and never pass through this process.
+    if region or profile:
+        providers.set_session_aws(provider_id, region=region, profile=profile)
 
     entry = next(p for p in providers.status() if p["id"] == provider_id)
     entry["models"] = providers.list_models(provider_id) if entry["ready"] else []

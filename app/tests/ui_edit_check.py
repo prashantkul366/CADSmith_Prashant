@@ -60,8 +60,15 @@ def generate(page, prompt: str) -> None:
 
 def apply_edit(page, instruction: str, expect_new_version: bool = True
                ) -> tuple[bool, float]:
-    """Type a change and apply it. Returns (a version was added, seconds)."""
+    """Type a change and apply it. Returns (a version was added, seconds).
+
+    A new version arriving is not the same as the screen showing it: the
+    code panel is filled by a separate fetch, so a fixed sleep reads stale
+    source on a loaded machine and the assertion blames the app for a race
+    in the test. Wait for the panel itself to change.
+    """
     before = page.evaluate("S.versions.length")
+    before_code = page.locator("#codeScroll").inner_text()
     page.fill("#cmdIn", instruction)
     started = time.time()
     page.click("#applyBtn")
@@ -70,11 +77,14 @@ def apply_edit(page, instruction: str, expect_new_version: bool = True
             page.wait_for_function(
                 f"() => S.busy === false && S.versions.length > {before}",
                 timeout=180000)
+            page.wait_for_function(
+                "previous => document.querySelector('#codeScroll').innerText "
+                "!== previous", arg=before_code, timeout=60000)
         except Exception:
             return False, time.time() - started
     else:
         page.wait_for_function("() => S.busy === false", timeout=180000)
-    page.wait_for_timeout(700)
+    page.wait_for_timeout(400)
     added = page.evaluate("S.versions.length") > before
     return added, time.time() - started
 

@@ -237,7 +237,14 @@ def check_configuration(args) -> dict:
     print()
     for entry in providers.status():
         if entry["ready"]:
-            ok(f"provider {entry['id']}", f"ready - {entry['base_url'] or 'SDK'}")
+            # For Bedrock the region and which credential source answered are
+            # the two things worth seeing - "SDK" tells you nothing, and the
+            # usual failure is the right code against the wrong account.
+            where = (f"{entry.get('aws_region')} via "
+                     f"{entry.get('aws_credentials') or 'aws'}"
+                     if entry["kind"] == "bedrock"
+                     else entry["base_url"] or "SDK")
+            ok(f"provider {entry['id']}", f"ready - {where}")
         else:
             print(f"  {DIM}....  provider {entry['id']}  not configured{RESET}")
 

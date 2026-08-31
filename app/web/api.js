@@ -29,11 +29,14 @@ const API = (() => {
     /* The key is posted once and held in server memory. It is never stored,
        never logged, and never sent back — the reply says only whether the
        provider is usable now. */
-    setProviderKey(providerId, apiKey, baseUrl) {
+    setProviderKey(providerId, apiKey, baseUrl, awsRegion, awsProfile) {
       return json(`/api/providers/${encodeURIComponent(providerId)}/key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+        body: JSON.stringify({
+          api_key: apiKey, base_url: baseUrl,
+          aws_region: awsRegion || "", aws_profile: awsProfile || "",
+        }),
       }).then(d => d.provider);
     },
     job:      id => json(`/api/jobs/${encodeURIComponent(id)}`),

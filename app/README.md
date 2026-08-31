@@ -129,13 +129,50 @@ touching the research code. Pick a provider in the app's left panel.
 | Provider | Needs | Notes |
 |---|---|---|
 | **Anthropic** | `ANTHROPIC_API_KEY` | Default. Uses the real SDK, so this path behaves exactly as the published pipeline does. |
+| **AWS Bedrock** | AWS credentials + a region | **Not an Anthropic API key** — see below. |
 | **OpenAI** | `OPENAI_API_KEY` | |
 | **Ollama** | Ollama running | Local Llama, Qwen, Mistral… `OLLAMA_BASE_URL` to move it off `localhost:11434`. |
 | **LM Studio** | its local server | `LMSTUDIO_BASE_URL` to relocate. |
 | **Custom** | `CADSMITH_LLM_BASE_URL` | Anything OpenAI-compatible: vLLM, llama.cpp, Together, Groq, OpenRouter. `CADSMITH_LLM_API_KEY` if it wants one. |
 
-Everything except Anthropic goes through one OpenAI-compatible adapter, so a
-new endpoint usually needs only a base URL.
+Everything except Anthropic and Bedrock goes through one OpenAI-compatible
+adapter, so a new endpoint usually needs only a base URL.
+
+### AWS Bedrock
+
+**Bedrock has no API key.** It authenticates with AWS credentials — a named
+profile, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, an SSO session, or an
+instance role — resolved by botocore and never passed through this app. The
+key field is hidden for this provider; what it needs is a **region**:
+
+```bash
+echo "AWS_REGION=us-east-1" >> .env     # or choose one in the app
+```
+
+Three things differ from the Anthropic path, and each has bitten someone:
+
+- **Model ids carry an `anthropic.` prefix** (`anthropic.claude-sonnet-5`).
+  `autofab/agents.py` hardcodes Anthropic-API ids at its call sites, so the
+  app substitutes the configured Bedrock id by role — otherwise the first
+  call dies with a validation error naming a model nobody chose.
+- **Model access is per-region and must be enabled** in the Bedrock console.
+  A working set of credentials in the wrong region gets you nothing.
+- **`bedrock:ListFoundationModels` is a separate permission** from
+  `bedrock:InvokeModel`. A role that can run the pipeline may not be allowed
+  to enumerate models, so the picker falls back to the two defaults rather
+  than showing an empty list.
+
+The app reports which credential source answered — `Ready — us-east-1,
+credentials from env` — because the usual Bedrock failure is the right code
+against the wrong account.
+
+If your account or region is still on the older `bedrock-runtime`
+InvokeModel route rather than the Messages endpoint, set
+`CADSMITH_BEDROCK_LEGACY=1`. The app says when it takes that path rather
+than switching silently.
+
+Bedrock is partner-operated, so [its pricing](https://aws.amazon.com/bedrock/pricing/)
+is separate from Anthropic's own.
 
 **Keys** come from `.env`, or you can paste one into the app for the current
 server process. A pasted key is held in memory only — never written to disk,
@@ -500,6 +537,7 @@ before anything is manufactured.
 .venv/bin/python -m app.tests.ui_edit_check        # a long edit chain in a
                                                     # browser, no API key
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
+.venv/bin/python -m app.tests.test_bedrock         # AWS Bedrock wiring
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,
                                                     # plus provider failures
