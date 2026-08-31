@@ -239,6 +239,9 @@ app/
     replay.py      re-emits a recorded run at presentation speed
   web/
     index.html  style.css  app.js  api.js  viewer.js  vendor/three.min.js
+  catalog/
+    standards.py   dimensions from ISO 4762/4014/4032/7089/273/2338, ISO 15
+    parts.py       those tables turned into CadQuery source
   tools/
     seed_demo_run.py   record demo runs without an API key
     mock_provider.py   a local stand-in for a model backend
@@ -294,6 +297,45 @@ the Judge would never weigh in on the geometry.
 Better than a real key for reproducing a failure, because the misbehaviour is
 deterministic.
 
+## Standard hardware, generated rather than downloaded
+
+`app/catalog/` builds standard mechanical hardware parametrically: socket
+head cap screws (ISO 4762), hex bolts (ISO 4014), hex nuts (ISO 4032), plain
+washers (ISO 7089), deep groove ball bearings (ISO 15), O-rings and dowel
+pins — 78 verified variants.
+
+```python
+from app.catalog import parts, standards
+
+screw = parts.socket_head_cap_screw("M8", 30)
+print(screw.code)                      # standalone CadQuery, assigns `result`
+standards.clearance_hole("M8")         # 9.0 — the hole it actually needs
+standards.counterbore("M8")            # (14.0, 8.0)
+```
+
+**Why generate instead of importing a vendor STEP.** A STEP is a frozen
+B-rep: no history, no parameters. You can cut it, fillet it and place it, but
+you cannot turn an M8 bolt into an M10. What `parts.py` emits is *source*,
+with the standard's dimensions as named assignments — so the code panel shows
+real numbers, the parameter editor rewrites them, and the Refiner can
+restructure the part. `test_catalog.py` proves this by running the app's own
+editor over a generated screw and rebuilding it in the kernel.
+
+**Threads are not modelled.** A swept helix on one M8×30 measured 283× the
+build time and 224× the STEP size of a plain shank — 2.5s and 1.3MB for a
+single screw. Every production CAD library shows plain shanks for the same
+reason. `threaded=True` gives you the real helix if you want to pay for it.
+
+**Selection is strict.** `parts.select()` returns a catalogue part only for an
+unambiguous designation. A custom part that merely *mentions* hardware — "a
+bearing housing for a 6203", "a bracket with four M8 clearance holes" — stays
+a custom part and goes to the pipeline, because substituting the component
+for the assembly would be silently wrong.
+
+The dimension tables in `standards.py` were transcribed by hand and carry
+nominal values only, no tolerances. Check them against a real reference
+before anything is manufactured.
+
 ## Tests
 
 ```bash
@@ -304,6 +346,7 @@ deterministic.
 .venv/bin/python -m app.tests.test_edits            # edit interpretation
 .venv/bin/python -m app.tests.test_edit_flow        # both edit paths, real kernel
 .venv/bin/python -m app.tests.test_replay           # recorded run fidelity
+.venv/bin/python -m app.tests.test_catalog         # standard hardware, real kernel
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,
