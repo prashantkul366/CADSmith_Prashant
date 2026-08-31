@@ -89,6 +89,37 @@ Windows PowerShell:
 Both read `.env`, so the health check reports the truth before the first run
 starts.
 
+## Behind a corporate proxy
+
+If model calls fail with:
+
+```
+[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate
+```
+
+your network is inspecting TLS and re-signing it with a company certificate
+authority. The OS trusts that CA — which is why your browser works — but
+Python ships its own `certifi` bundle that has never seen it.
+
+`truststore` is in `requirements-app.txt` and the app injects it at startup,
+so Python uses the OS certificate store instead. If you installed before that
+was added:
+
+```powershell
+.venv\Scripts\python -m pip install truststore
+```
+
+Alternatively, point at an explicit bundle containing your company CA — the
+app honours `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` and prefers either over
+everything else. `CADSMITH_TRUST_STORE=certifi` opts back out.
+
+**Do not disable certificate verification.** On exactly the networks that
+need this fix, accepting any certificate is the wrong response. Nothing here
+turns verification off.
+
+The preflight reports which trust source is in use, and the health chip shows
+it too.
+
 ## Model backends
 
 `autofab/agents.py` reaches the network through one function, and every agent

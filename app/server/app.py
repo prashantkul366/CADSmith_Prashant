@@ -25,8 +25,8 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
+from . import providers, tls
 from .drawing import ensure_sheet
-from . import providers
 from .jobs import JobManager, JobOptions, STATUS_DONE, STATUS_ERROR
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +77,10 @@ FALLBACK_EXAMPLES = [
         ),
     },
 ]
+
+# Before any client is built: on a network that inspects TLS, certifi alone
+# cannot verify the re-signed certificates and every model call fails.
+tls.configure()
 
 app = FastAPI(title="CADSmith", docs_url="/api/docs", redoc_url=None)
 manager = JobManager(RUNS_DIR)
@@ -171,6 +175,9 @@ def _health() -> dict:
         checks["metrics"] = {"ok": True, "detail": "trimesh and scipy available"}
     except Exception as exc:
         checks["metrics"] = {"ok": False, "detail": str(exc)}
+
+    trust = tls.status()
+    checks["tls_trust"] = {"ok": trust["ok"], "detail": trust["detail"]}
 
     return {
         "ok": all(c["ok"] for c in checks.values()),

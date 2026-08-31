@@ -27,3 +27,8 @@ uvicorn[standard]
 # LM Studio, and the hosted gateways that speak the same API). The Anthropic
 # path uses its own SDK, from requirements.txt.
 httpx
+
+# Makes Python trust the OS certificate store rather than only certifi.
+# Required on corporate networks that inspect TLS, where every HTTPS
+# connection is re-signed by a company CA the OS trusts and certifi does not.
+truststore

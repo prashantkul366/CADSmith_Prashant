@@ -194,6 +194,14 @@ def check_rendering() -> None:
 def check_configuration(args) -> dict:
     section("Configuration")
     try:
+        from app.server import tls
+
+        trust = tls.configure()
+        (ok if trust["ok"] else warn)("certificate trust", trust["detail"])
+    except Exception as exc:
+        warn("certificate trust", f"could not configure: {exc}")
+
+    try:
         from dotenv import load_dotenv
 
         env_file = ROOT / ".env"
@@ -396,6 +404,14 @@ def _check_anthropic(config, args) -> None:
 
 def _advice(error: str) -> str:
     lowered = error.lower()
+    if "certificate_verify_failed" in lowered or "certificate verify" in lowered:
+        return ("Your network is inspecting TLS and re-signing it with a "
+                "certificate authority Python does not know. Install "
+                "truststore so Python uses the OS store, which does:\n"
+                "           pip install truststore\n"
+                "        Then run this check again. Do not disable "
+                "verification - on this kind of network that is exactly the "
+                "wrong fix.")
     if "429" in lowered or "rate" in lowered:
         return ("Rate limited. Free-tier limits are per account, not per key - "
                 "wait a minute, pick another model, or add credit.")
