@@ -14,12 +14,20 @@ cd "$ROOT"
 
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
-PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
+# Accept either name: ".venv" is this project's convention, "venv" is the
+# other common one. $PYTHON overrides both.
+if [ -z "${PYTHON:-}" ]; then
+  for candidate in "$ROOT/.venv/bin/python" "$ROOT/venv/bin/python"; do
+    if [ -x "$candidate" ]; then PYTHON="$candidate"; break; fi
+  done
+fi
 
-if [ ! -x "$PYTHON" ]; then
-  echo "No interpreter at $PYTHON" >&2
+if [ -z "${PYTHON:-}" ] || [ ! -x "$PYTHON" ]; then
+  echo "No virtualenv found in $ROOT (looked for .venv and venv)" >&2
   echo "Create one with:" >&2
-  echo "  python3 -m venv .venv && .venv/bin/pip install -r app/requirements-app.txt" >&2
+  echo "  python3 -m venv .venv" >&2
+  echo "  .venv/bin/python -m pip install -r app/requirements-app.txt" >&2
+  echo "Or point at an existing one:  PYTHON=/path/to/python ./app/run_app.sh" >&2
   exit 1
 fi
 

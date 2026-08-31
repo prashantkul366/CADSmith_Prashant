@@ -13,6 +13,7 @@
 param(
     [int]$Port = 8000,
     [string]$AppHost = "127.0.0.1",
+    [string]$Python = "",
     [switch]$Reload
 )
 
@@ -21,14 +22,23 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 Set-Location $root
 
-$python = Join-Path $root ".venv\Scripts\python.exe"
-if (-not (Test-Path $python)) {
-    Write-Host "No interpreter at $python" -ForegroundColor Red
+# Accept either name: ".venv" is this project's convention, "venv" is the
+# other common one. -Python overrides both.
+$python = ""
+foreach ($candidate in @($Python,
+                         (Join-Path $root ".venv\Scripts\python.exe"),
+                         (Join-Path $root "venv\Scripts\python.exe"))) {
+    if ($candidate -and (Test-Path $candidate)) { $python = $candidate; break }
+}
+if (-not $python) {
+    Write-Host "No virtualenv found in $root (looked for .venv and venv)" -ForegroundColor Red
     Write-Host "Create one with:"
     Write-Host "  python -m venv .venv"
     Write-Host "  .venv\Scripts\python -m pip install -r app\requirements-app.txt"
+    Write-Host "Or point at an existing one:  .\app\run_app.ps1 -Python C:\path\to\python.exe"
     exit 1
 }
+Write-Host "Using $python" -ForegroundColor DarkGray
 
 & $python -c "import cadquery" 2>$null
 if ($LASTEXITCODE -ne 0) {
