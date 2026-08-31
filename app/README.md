@@ -297,6 +297,13 @@ while you were away opens on its result.
 Click a rejected one to load its geometry, its source and the Judge's reasons
 for rejecting it, next to the render the Judge was given.
 
+**Units.** An edit may be given in millimetres, centimetres or inches —
+*"make it 1.5cm thick"*, *"make it 1 inch thick"* — and is converted to the
+millimetres every generated script is written in. Bare `m` and bare `in` are
+deliberately not recognised: *"3 in total"* is a preposition, and being wrong
+by a factor of 25 is worse than not supporting a unit nobody writes for a
+machined part.
+
 **Edit.** Type a change in the bar at the bottom. A request naming a parameter
 the script declares is patched and rebuilt by the kernel; anything structural
 goes to the Refiner agent. The UI says which ran. Ambiguous requests are never
@@ -612,6 +619,10 @@ before anything is manufactured.
 .venv/bin/python -m app.tests.ui_stress_check      # drives the app badly on
                                                     # purpose: clicking mid-run,
                                                     # double-firing, reloading
+.venv/bin/python -m app.tests.ui_prompts_check     # vague, non-CAD, abusive and
+                                                    # injected input; XSS
+.venv/bin/python -m app.tests.ui_export_check      # STEP/STL/.py downloads and
+                                                    # state between runs
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.test_bedrock         # AWS Bedrock wiring
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
