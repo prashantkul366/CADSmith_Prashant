@@ -15,8 +15,22 @@ Sources: ISO 4762 (socket head cap screws), ISO 4014 (hex bolts), ISO 4032
 (dowel pins), and the ISO 15 bearing series.
 
     These tables were transcribed by hand and carry nominal values only -
-    no tolerances, no length-dependent thread runout.  Check them against a
-    real reference before anything is manufactured from them.
+    no tolerances, no length-dependent thread runout.
+
+    176 of the values are cross-checked against BOLTS, an independent open
+    library of technical specifications, by ``app/tools/check_standards.py``.
+    That covers ISO 4762, ISO 4014, ISO 4032, ISO 7089, the ISO 15 bearings
+    and the coarse thread pitches; all of them agree.
+
+    Not covered by that check, and still transcription only:
+
+        clearance and tapping-drill columns of ``THREADS`` (ISO 273)
+        ``NEMA_FRAMES``      - not a family BOLTS carries
+        ``O_RING_CORDS``
+        the belt profiles in ``parts.py``
+
+    Nothing here carries tolerances, so read the standard before anything is
+    manufactured from it.
 """
 
 from __future__ import annotations

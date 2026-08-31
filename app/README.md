@@ -10,6 +10,13 @@ the kernel exported, the dimensions are the kernel's own measurements, the code
 is what the Coder agent wrote, and the verdict is the Judge's. Nothing is
 simulated and no progress bar runs on a timer.
 
+## Licence
+
+`app/` is Apache-2.0 (`app/LICENSE`). The research code — `autofab/`,
+`scripts/`, `data/`, `run.py` — is by other authors and carries no licence,
+so all rights are reserved there by default. The root `NOTICE` explains the
+split and lists third-party components.
+
 ## Nothing in the research code changed
 
 `autofab/`, `scripts/`, `data/`, `run.py` and `requirements.txt` are untouched.
@@ -317,6 +324,7 @@ app/
     mock_provider.py   a local stand-in for a model backend
     mock_parts.py      ten real mechanical parts it serves
     grounding_ab.py    with/without grounding, against a real model
+    check_standards.py verifies the dimension tables against BOLTS
     doctor.py          preflight: can this machine run a demo
   tests/
   runs/         one directory per run: events.jsonl, meta.json, v0/ v1/ …
@@ -440,6 +448,28 @@ four standards, as a non-closed shell with roughly twice the correct volume;
 ours matches the analytic volume exactly. And **bearings come from `parts.py`**
 because `cq_warehouse` carries 31 sizes but only 4 of the 20 ISO 15
 designations people actually ask for — it has no 6203.
+
+### The dimension tables are checked, not trusted
+
+`standards.py` was transcribed by hand. `app/tools/check_standards.py`
+compares it against [BOLTS](https://github.com/boltsparts/boltsparts), an
+independent open library of technical specifications:
+
+```bash
+git clone https://github.com/boltsparts/boltsparts.git /tmp/bolts
+.venv/bin/python -m app.tools.check_standards --bolts /tmp/bolts
+```
+
+**176 values compared, all agree** — ISO 4762, 4014, 4032, 7089, the ISO 15
+bearings and the coarse thread pitches. One difference was investigated and
+resolved in our favour: BOLTS gives the ISO 7089 M10 washer bore as 10mm,
+but that bore tracks the ISO 273 close-fit series exactly at every other
+size, and 10.5mm is the close fit for M10.
+
+Nothing from BOLTS is copied here — its data is LGPL-2.1+ and its tooling
+GPL-3.0. The tool reads a checkout you supply. NEMA frames, O-ring cords,
+the ISO 273 clearance columns and the belt profiles have no counterpart in
+BOLTS and remain transcription only; `standards.py` says which is which.
 
 ### Nothing is served unverified
 
