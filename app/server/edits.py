@@ -198,8 +198,12 @@ def plan_edit(code: str, instruction: str) -> EditPlan:
         return EditPlan([], "no target value was given")
 
     delta = bool(_INCREASE.search(text) or _DECREASE.search(text))
-    # "two more holes" counts; "8mm holes" measures.
-    counting = delta and not _LENGTH_UNIT.search(text)
+    # "two more holes" counts; "8mm holes" measures. A count does not have to
+    # be a delta though: "make it 40 teeth" is an absolute count, and reading
+    # it as a measurement scored `teeth_number` *negative* and refused the
+    # edit. No length unit plus a counting noun is enough.
+    counting = not _LENGTH_UNIT.search(text) and (
+        delta or bool(words & _COUNT_TOKENS))
 
     scored = sorted(
         ((p, _score(p, words, counting)) for p in available.values()),

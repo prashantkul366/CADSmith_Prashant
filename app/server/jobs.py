@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from . import catalog_run
 from .edits import apply_changes, describe, plan_edit
 from .events import (
     EventSink,
@@ -76,6 +77,9 @@ class JobOptions:
     #: names. Off reproduces the pipeline as published, so the two settings
     #: are a live ablation rather than a preference.
     ground_dimensions: bool = True
+    #: Answer an unambiguous standard-part request from the catalogue instead
+    #: of generating it. Off sends everything through the five agents.
+    use_catalog: bool = True
     provider: str = DEFAULT_PROVIDER
     generation_model: str = ""
     judge_model: str = ""
@@ -88,6 +92,7 @@ class JobOptions:
             max_error_retries=max(0, min(5, int(raw.get("max_error_retries", 3)))),
             use_vision=bool(raw.get("use_vision", True)),
             ground_dimensions=bool(raw.get("ground_dimensions", True)),
+            use_catalog=bool(raw.get("use_catalog", True)),
             provider=str(raw.get("provider") or DEFAULT_PROVIDER),
             generation_model=str(raw.get("generation_model") or ""),
             judge_model=str(raw.get("judge_model") or ""),
@@ -234,6 +239,47 @@ class JobManager:
             from autofab import agents
 
             agents.reset_token_usage()
+
+            # An unambiguous standard part has nothing for five agents to work
+            # out: the dimensions come from the standard and a model can only
+            # introduce error. The router refuses anything ambiguous and
+            # verifies whatever it does return, so reaching here means a sound
+            # solid is already in hand. Anything unexpected falls through to
+            # the pipeline rather than failing the run.
+            routed = None
+            if job.options.use_catalog:
+                try:
+                    routed = catalog_run.find(job.prompt)
+                except Exception as error:
+                    sink.emit(PHASE_JOB, STATUS_INFO,
+                              f"Catalogue lookup skipped: {error}")
+            if routed is not None:
+                try:
+                    catalog_run.serve(ctx, routed, job.directory / "work")
+                    # The job itself is catalogue-sourced, not just its
+                    # version - otherwise History shows it as an ordinary
+                    # converged run and the provenance is lost.
+                    job.source = "catalog"
+                    job.converged = True
+                    job.design_plan = {}
+                    job.llm_calls = 0
+                    job.tokens = agents.get_token_usage()
+                    job.versions = list(ctx.versions)
+                    job.status = STATUS_DONE
+                    job.finished_at = time.time()
+                    self._write_meta(job)
+                    sink.emit(PHASE_JOB, STATUS_OK, "Served from the catalogue.",
+                              converged=True, tokens=job.tokens,
+                              llm_calls=0, source="catalog")
+                    return
+                except Exception as error:
+                    sink.emit(
+                        PHASE_JOB, STATUS_INFO,
+                        f"The catalogue part would not build here, so the "
+                        f"pipeline will generate it instead: {error}")
+                    ctx.source = "pipeline"
+                    ctx.versions.clear()
+
             pipeline = InstrumentedPipeline(
                 output_dir=str(job.directory / "work"),
                 max_error_retries=job.options.max_error_retries,

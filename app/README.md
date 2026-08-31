@@ -239,6 +239,7 @@ app/
     edits.py       parameter-patch interpretation, with the Refiner as fallback
     providers.py   Anthropic, OpenAI, Ollama and any OpenAI-compatible backend
     drawing.py     orthographic projections composed into a sheet
+    catalog_run.py serves a standard part instead of generating it
     replay.py      re-emits a recorded run at presentation speed
   web/
     index.html  style.css  app.js  api.js  viewer.js  vendor/three.min.js
@@ -247,6 +248,9 @@ app/
                    and NEMA ICS 16 motor frames
     parts.py       those tables turned into CadQuery source
     grounding.py   retrieval of the numbers for the Planner
+    library.py     gears, fasteners and sprockets from cq_gears/cq_warehouse
+    router.py      is this request a standard part, and which one
+    verify.py      build it and check it before anyone relies on it
   tools/
     seed_demo_run.py   record demo runs without an API key
     mock_provider.py   a local stand-in for a model backend
@@ -343,6 +347,75 @@ scores whether the published value came out in the plan. If a model already
 knows the number, grounding buys nothing for that fact and the harness says
 so rather than assuming the feature works.
 
+## Standard parts, answered from a catalogue
+
+Ask for *"an M8x30 socket head cap screw"* or *"a 20 tooth spur gear, module
+2"* and no agent runs. There is nothing to work out: the dimensions come from
+the standard, the geometry is exact, and a model can only introduce error.
+The part is built in the kernel and returned in a few seconds, **with no API
+key at all**.
+
+### Where the geometry comes from
+
+Two Apache-2.0 libraries cover the families they are better at than
+hand-written geometry, pinned to a commit because neither is on PyPI:
+
+| family | source |
+|---|---|
+| spur, helical, herringbone, ring, rack, bevel gears | `cq_gears` |
+| 12 screw head types, 7 nut types, M1.6–M64 | `cq_warehouse` |
+| sprockets, roller chain, ISO threads | `cq_warehouse` |
+| **washers** | `app/catalog/parts.py` — see below |
+| bearings (20 ISO 15 designations) | `app/catalog/parts.py` |
+| O-rings, dowel pins | `app/catalog/parts.py` |
+| compression springs, GT2/HTD/T5/T10 timing pulleys | `app/catalog/parts.py` |
+
+Both are optional. Without them the catalogue covers fewer families and
+everything still runs — a demo should not die because a git dependency moved.
+
+Two things were settled by measurement rather than preference. **Washers come
+from `parts.py`** because `cq_warehouse` 0.8.0 returns every washer, in all
+four standards, as a non-closed shell with roughly twice the correct volume;
+ours matches the analytic volume exactly. And **bearings come from `parts.py`**
+because `cq_warehouse` carries 31 sizes but only 4 of the 20 ISO 15
+designations people actually ask for — it has no 6203.
+
+### Nothing is served unverified
+
+`app/catalog/verify.py` builds every candidate before it is served and checks
+that it executes, assigns `result`, is a single valid closed solid, and has
+real volume. Parts with a closed-form volume are compared against it, which
+is what catches a two-times-wrong washer that validity alone would miss.
+
+A part that fails is dropped and the request falls through to the model —
+slower, but not wrong.
+
+### Routing is conservative
+
+*"An M8x30 socket head cap screw"* is a standard part. *"A bracket that takes
+four M8 screws"* is a custom bracket that merely mentions one, and still goes
+to the five agents. So do *"a bearing housing for a 6203"*, *"a gearbox
+housing"*, and *"a spur gear"* with no tooth count — under-specified rather
+than standard. A wrong substitution hands back confidently wrong hardware,
+so anything ambiguous reaches the model.
+
+### It is never disguised as pipeline output
+
+A part no agent produced must not be shown as evidence that the agents work.
+Catalogue runs are badged `CATALOG` in the timeline and in History, the
+viewer titles them *Standard part*, the Validation panel names the standard
+and says plainly that no model wrote it and no Judge assessed it, and the
+model labels read `CATALOGUE · CQ_GEARS` rather than naming a model that was
+never called.
+
+### It is still editable
+
+That is the whole reason for generating rather than downloading a STEP. The
+emitted source is parametric, so *"make it 40 teeth"* is a parameter patch —
+no model call — and the kernel rebuilds a gear whose tip diameter measures
+84mm, exactly `module × teeth + 2 × module`. A downloaded solid has no
+parameters to patch.
+
 ## Standard hardware, generated rather than downloaded
 
 `app/catalog/` builds standard mechanical hardware parametrically: socket
@@ -394,6 +467,10 @@ before anything is manufactured.
 .venv/bin/python -m app.tests.test_replay           # recorded run fidelity
 .venv/bin/python -m app.tests.test_catalog         # standard hardware, real kernel
 .venv/bin/python -m app.tests.test_grounding       # what reaches the Planner
+.venv/bin/python -m app.tests.test_catalog_library # every catalogue part, real
+                                                    # kernel; routing; the guard
+.venv/bin/python -m app.tests.ui_catalog_check     # catalogue in a browser,
+                                                    # with no API key
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,

@@ -179,9 +179,34 @@ def _health() -> dict:
     trust = tls.status()
     checks["tls_trust"] = {"ok": trust["ok"], "detail": trust["detail"]}
 
+    # The catalogue is never a reason a demo cannot run - without the optional
+    # backends it simply covers less - so this reports as ok either way and
+    # says what is actually available.
+    try:
+        from app.catalog import router as catalog_router
+
+        described = catalog_router.describe()
+        live = [name for name, present in described["backends"].items() if present]
+        checks["catalog"] = {
+            "ok": True,
+            "detail": (f"{len(described['families'])} part families"
+                       + (f" ({', '.join(live)})" if live else
+                          " (cq_gears and cq_warehouse not installed)")),
+        }
+    except Exception as exc:
+        checks["catalog"] = {"ok": True,
+                             "detail": f"catalogue unavailable: {exc}"}
+
     return {
         "ok": all(c["ok"] for c in checks.values()),
-        "can_generate": checks["cadquery"]["ok"] and checks["model_backend"]["ok"],
+        # A standard part is answered from the catalogue with no model call,
+        # so the app can generate *something* as soon as CadQuery works.
+        # Whether the agents can run is a separate question, and the key
+        # banner says so - greying out Generate entirely would refuse work
+        # the app can plainly do.
+        "can_generate": checks["cadquery"]["ok"] and (
+            checks["model_backend"]["ok"] or checks["catalog"]["ok"]),
+        "can_run_agents": checks["cadquery"]["ok"] and checks["model_backend"]["ok"],
         "checks": checks,
         "providers": providers.status(),
     }
@@ -241,9 +266,23 @@ async def create_job(request: Request) -> JSONResponse:
                    + status["checks"]["cadquery"]["detail"],
         )
     options = JobOptions.from_dict(body.get("options"))
-    issues = providers.problems(options.llm_config())
-    if issues:
-        raise HTTPException(status_code=503, detail=" ".join(issues))
+
+    # A standard part is answered from the catalogue with no model call at
+    # all, so requiring a key for one would refuse work the app can plainly
+    # do. Everything else still needs a backend.
+    from_catalog = False
+    if options.use_catalog:
+        try:
+            from app.catalog import router as catalog_router
+
+            from_catalog = catalog_router.select(prompt) is not None
+        except Exception:
+            from_catalog = False
+
+    if not from_catalog:
+        issues = providers.problems(options.llm_config())
+        if issues:
+            raise HTTPException(status_code=503, detail=" ".join(issues))
     if options.use_vision and not status["checks"]["vision_render"]["ok"]:
         options.use_vision = False  # degrade rather than fail mid-run
 

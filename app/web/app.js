@@ -129,9 +129,14 @@ async function loadHealth() {
 
   if (!checks.model_backend.ok) {
     $("#keyBanner").hidden = false;
-    $("#keyBannerText").textContent =
-      "No model backend configured, so the agents cannot run. Choose a "
-      + "provider below, or replay a recorded run.";
+    const catalogue = checks.catalog && checks.catalog.ok;
+    $("#keyBannerText").textContent = catalogue
+      ? "No model backend configured, so the five agents cannot run. Standard "
+        + "parts still work — ask for a fastener, bearing, gear, pulley or "
+        + "spring and it comes from the catalogue, exactly and instantly. "
+        + "Anything custom needs a provider below."
+      : "No model backend configured, so the agents cannot run. Choose a "
+        + "provider below, or replay a recorded run.";
   } else {
     $("#keyBanner").hidden = true;
   }
@@ -216,6 +221,23 @@ function handleEvent(event) {
   // Grounding happens before the Planner runs. Show it in the run log and on
   // the Planning stage, so what the Planner was told is visible rather than
   // being a silent prompt change.
+  // A part that no agent produced must never read as evidence that the
+  // agents work, so say plainly where it came from.
+  if (phase === "catalog") {
+    appendLog(message);
+    if (data && data.part_id) {
+      S.catalog = data;
+      renderStages("done", `${data.title} — from the catalogue`);
+      renderPlan(null);
+      // No judge ran, so naming one in the Validation header would credit a
+      // model that was never called.
+      const backend = String(data.backend || "").toUpperCase();
+      $("#judgeModelLabel").textContent = `CATALOGUE · ${backend}`;
+      $("#genModelLabel").textContent = `CATALOGUE · ${backend}`;
+    }
+    return;
+  }
+
   if (phase === "ground") {
     appendLog(`Standard dimensions: ${message}`);
     if (data && data.subjects && data.subjects.length) {
@@ -273,8 +295,9 @@ function renderIterations() {
   if (!S.versions.length) { $("#iters").innerHTML = ""; return; }
   const cards = S.versions.map((v, i) => {
     const kind = v.source === "edit" ? "edit" : (v.passed ? "pass" : "fail");
-    const label = v.source === "edit"
-      ? `EDIT ${v.iteration}` : `ITER ${v.iteration}`;
+    const label = v.source === "edit" ? `EDIT ${v.iteration}`
+      : v.source === "catalog" ? "CATALOG"
+      : `ITER ${v.iteration}`;
     const thumb = v.has_render
       ? `<img src="${API.artifact(S.jobId, v.iteration, "render.png")}" alt="" />`
       : "";
@@ -329,6 +352,15 @@ async function selectVersion(index, options) {
 /* ═══════════════════════ panels ═══════════════════════ */
 
 function renderPlan(plan) {
+  // A catalogue part has no design plan because no Planner ran. Saying so is
+  // better than leaving "Planning…" on screen for a finished part.
+  if (!plan && S.catalog) {
+    $("#planBody").innerHTML =
+      `<div class="await">No design plan — ${esc(S.catalog.title)} is `
+      + `defined by ${esc(S.catalog.standard)}, so nothing had to be `
+      + `worked out.</div>`;
+    return;
+  }
   if (!plan) return;
   const dimensions = (plan.dimensions && plan.dimensions.key_dimensions) || {};
   const bbox = (plan.dimensions && plan.dimensions.overall_bbox) || {};
@@ -360,8 +392,10 @@ function renderPlan(plan) {
 function renderKernelFacts(version) {
   const geometry = version.geometry || {};
   const bbox = geometry.bounding_box || {};
-  $("#mtitle").textContent = version.source === "edit"
-    ? "Model updated" : (version.passed ? "Validated" : "Attempt not yet validated");
+  $("#mtitle").textContent =
+    version.source === "edit" ? "Model updated"
+    : version.source === "catalog" ? "Standard part"
+    : (version.passed ? "Validated" : "Attempt not yet validated");
   $("#mfacts").innerHTML = [
     ["bbox mm", `${fmt(bbox.xlen)}×${fmt(bbox.ylen)}×${fmt(bbox.zlen)}`],
     ["volume mm³", fmt(Math.round(geometry.volume || 0))],
@@ -394,6 +428,18 @@ function renderValidation(version) {
     const judgeModel = (S.judgeModel || "").toUpperCase() || "JUDGE MODEL";
     attribution = judgeModel + " · " + (version.has_render
       ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY");
+  } else if (version.source === "catalog") {
+    // No agent produced this, so there is nothing for a Judge to have
+    // accepted. Say where it came from instead of implying a verdict.
+    const cat = version.catalog || {};
+    heading = "Standard part, served from the catalogue";
+    body = `${cat.title || "This part"} is defined by ${cat.standard
+      || "its standard"}, so its dimensions are exact rather than estimated. `
+      + "No model wrote it and no Judge assessed it. OpenCASCADE built it and "
+      + "reports a valid watertight solid, and the source is parametric — "
+      + "edit it like any other part.";
+    attribution = "CATALOGUE · " + String(cat.backend || "cadsmith").toUpperCase()
+      + " · NO MODEL CALL";
   } else {
     heading = passed ? "Rebuilt and checked by the kernel"
                      : "The kernel rejected this solid";
@@ -444,6 +490,7 @@ async function generate() {
   S.designPlan = null;
   S.converged = false;
   S.replay = false;
+  S.catalog = null;
   resetPill();
   $("#genBtn").disabled = true;
   $("#iters").innerHTML = "";
@@ -535,7 +582,12 @@ function finishRun(data) {
     : "";
   const seconds = data.total_ms ? ` in ${(data.total_ms / 1000).toFixed(1)}s` : "";
 
-  if (S.converged) {
+  if (S.catalog || data.source === "catalog") {
+    // Nothing iterated and nothing was spent, so the pipeline's wording
+    // does not apply - it rendered as "Converged after undefined iterations".
+    toast(`${S.catalog ? S.catalog.title : "Standard part"} — from the `
+          + `catalogue${seconds}, no model call`);
+  } else if (S.converged) {
     toast(`Converged after ${data.iterations} iteration${
       data.iterations === 1 ? "" : "s"}${seconds}${cost}`);
   } else {
@@ -574,6 +626,7 @@ async function loadHistory() {
     // fixture had its agent replies scripted rather than generated.
     const origin =
       job.source === "replay" ? `<span class="hbadge replay">REPLAY</span>`
+      : job.source === "catalog" ? `<span class="hbadge fixture">CATALOG</span>`
       : job.source === "fixture" ? `<span class="hbadge fixture">FIXTURE</span>`
       : "";
     return `
@@ -855,7 +908,14 @@ function updateGenerateAvailability() {
   const ready = !!(provider && provider.ready
                    && $("#optGenModel").value.trim()
                    && $("#optJudgeModel").value.trim());
-  $("#genBtn").disabled = !(kernelOk && ready);
+  // A standard part is answered from the catalogue with no model call, so
+  // the kernel alone is enough to press Generate. A custom prompt without a
+  // provider is refused by the server with a clear reason - which is better
+  // than greying out the button and leaving someone to guess why.
+  const catalogue = !!(S.health && S.health.checks
+                       && S.health.checks.catalog
+                       && S.health.checks.catalog.ok);
+  $("#genBtn").disabled = !(kernelOk && (ready || catalogue));
 }
 
 async function saveProviderKey() {

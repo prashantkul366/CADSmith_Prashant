@@ -108,8 +108,29 @@ def main() -> int:
         note = page.locator("#providerNote").inner_text()
         check("an unreachable local provider is reported honestly",
               "Nothing is listening" in note, note[:70])
-        check("generate is blocked with no usable backend",
-              page.locator("#genBtn").is_disabled())
+        # Generate is no longer blocked without a backend: a standard part is
+        # answered from the catalogue with no model call, so greying the
+        # button out would refuse work the app can plainly do. A custom
+        # prompt is refused server-side with a reason instead, which
+        # ui_catalog_check covers.
+        catalogue = page.evaluate(
+            "S.health && S.health.checks.catalog && S.health.checks.catalog.ok")
+        check("generate stays available for catalogue parts",
+              bool(catalogue) and not page.locator("#genBtn").is_disabled(),
+              f"catalogue={catalogue}")
+        # A key pasted into the app lives in memory for the life of the
+        # server process, so a previous run of this file leaves one behind
+        # and the banner is legitimately gone. Only assert it when the
+        # backend really is unconfigured.
+        backend_ok = page.evaluate("S.health.checks.model_backend.ok")
+        if not backend_ok:
+            check("the banner says the agents cannot run without a backend",
+                  "agents cannot run"
+                  in page.locator("#keyBannerText").inner_text(),
+                  page.locator("#keyBannerText").inner_text()[:70])
+        else:
+            print("  ....  banner check skipped - a backend is configured "
+                  "(a key from an earlier run is still in memory)")
         check("the key field appears when setup is needed",
               page.locator("#keyRow").is_visible())
 

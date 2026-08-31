@@ -354,6 +354,171 @@ _PIN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)", re.I)
 _LENGTH_WORDS = re.compile(r"(\d+(?:\.\d+)?)\s*mm\s+long", re.I)
 
 
+# ---------------------------------------------------------------------------
+# Families neither cq_gears nor cq_warehouse covers
+# ---------------------------------------------------------------------------
+
+def compression_spring(wire_diameter: float = 2.0, outer_diameter: float = 20.0,
+                       free_length: float = 50.0, coils: float = 8.0
+                       ) -> CatalogPart:
+    """A helical compression spring, swept along a real helix.
+
+    ``free_length`` is the overall height an engineer measures, so the helix
+    centreline runs one wire diameter shorter than that and the sweep is
+    lifted half a wire off the base - otherwise a spring asked for at 50mm
+    comes back 52mm tall.
+
+    Ends are left open (neither closed nor ground): squaring them is a
+    grinding operation on the real part and adds a boolean here for no
+    benefit to a fit check.
+    """
+    code = f"""import cadquery as cq
+
+wire_diameter = {_n(wire_diameter)}
+outer_diameter = {_n(outer_diameter)}
+free_length = {_n(free_length)}
+active_coils = {_n(coils)}
+
+mean_radius = (outer_diameter - wire_diameter) / 2.0
+# Free length is the overall height, so the centreline is a wire shorter.
+helix_height = free_length - wire_diameter
+coil_pitch = helix_height / active_coils
+
+helix = cq.Wire.makeHelix(
+    pitch=coil_pitch, height=helix_height, radius=mean_radius)
+result = (
+    cq.Workplane('XZ')
+    .center(mean_radius, 0)
+    .circle(wire_diameter / 2.0)
+    .sweep(cq.Workplane(helix), isFrenet=True)
+    .translate((0, 0, wire_diameter / 2.0))
+)
+"""
+    return CatalogPart(
+        id=f"spring_d{wire_diameter:g}_od{outer_diameter:g}_l{free_length:g}",
+        title=f"Compression spring, {wire_diameter:g} mm wire, "
+              f"{outer_diameter:g} mm OD, {free_length:g} mm free length",
+        standard="helical compression spring", code=code,
+        parameters={"wire_diameter": wire_diameter,
+                    "outer_diameter": outer_diameter,
+                    "free_length": free_length, "coils": coils})
+
+
+@dataclass(frozen=True)
+class BeltProfile:
+    """A timing belt tooth profile.
+
+    ``groove_radius`` marks a curvilinear profile (GT2, HTD); ``tooth_depth``
+    with ``half_top`` marks a trapezoidal one (the T series).
+    """
+    pitch: float
+    tooth_depth: float
+    pitch_line_offset: float
+    groove_radius: float = 0.0   # curvilinear
+    half_top: float = 0.0        # trapezoidal
+    flank_angle: float = 20.0
+
+
+#: The trapezoidal T-series profiles are exact - ISO 5296 defines them as
+#: trapezoids. GT2 and HTD are approximated by a circular groove, which is
+#: what every open-source pulley generator does and what prints correctly;
+#: the true profiles are proprietary curves. Say so rather than implying
+#: standard fidelity we do not have.
+BELT_PROFILES: dict[str, BeltProfile] = {
+    "GT2":   BeltProfile(pitch=2.0, tooth_depth=0.76, pitch_line_offset=0.254,
+                         groove_radius=0.555),
+    "HTD5M": BeltProfile(pitch=5.0, tooth_depth=2.06, pitch_line_offset=0.5715,
+                         groove_radius=1.49),
+    "T5":    BeltProfile(pitch=5.0, tooth_depth=1.2, pitch_line_offset=0.5,
+                         half_top=1.325),
+    "T10":   BeltProfile(pitch=10.0, tooth_depth=2.5, pitch_line_offset=1.0,
+                         half_top=2.625),
+}
+
+
+def timing_pulley(teeth: int = 20, belt: str = "GT2",
+                  face_width: float = 7.0, bore: float = 5.0) -> CatalogPart:
+    """A timing belt pulley: GT2, HTD 5M, T5 or T10."""
+    key = belt.upper().replace("-", "").replace(" ", "")
+    if key not in BELT_PROFILES:
+        raise KeyError(f"Unknown belt '{belt}'. "
+                       f"Known: {', '.join(BELT_PROFILES)}")
+    profile = BELT_PROFILES[key]
+    pitch_d = teeth * profile.pitch / 3.141592653589793
+
+    head = f"""import cadquery as cq
+from math import pi, tan, radians
+
+# {key} timing pulley, {teeth} teeth on a {profile.pitch:g} mm belt pitch
+teeth = {teeth}
+belt_pitch = {_n(profile.pitch)}
+face_width = {_n(face_width)}
+pitch_line_offset = {_n(profile.pitch_line_offset)}
+
+pitch_diameter = teeth * belt_pitch / pi
+outer_radius = pitch_diameter / 2.0 - pitch_line_offset
+
+result = cq.Workplane('XY').circle(outer_radius).extrude(face_width)
+"""
+
+    if profile.groove_radius:
+        body = f"""
+# Curvilinear profile, approximated by a circular groove on the pitch circle.
+groove_radius = {_n(profile.groove_radius)}
+grooves = (
+    cq.Workplane('XY')
+    .polarArray(pitch_diameter / 2.0, 0, 360, teeth)
+    .circle(groove_radius)
+    .extrude(face_width)
+)
+result = result.cut(grooves)
+"""
+    else:
+        body = f"""
+# Trapezoidal profile, exact per ISO 5296. One groove is built as a prism
+# through the full face width - a timing pulley is a constant cross-section -
+# then rotated into place around the rim.
+tooth_depth = {_n(profile.tooth_depth)}
+half_top = {_n(profile.half_top)}
+flank_angle = {_n(profile.flank_angle)}
+
+root_radius = outer_radius - tooth_depth
+half_root = half_top - tooth_depth * tan(radians(flank_angle))
+groove = (
+    cq.Workplane('XY')
+    .polyline([(-half_top, outer_radius + 1.0), (half_top, outer_radius + 1.0),
+               (half_root, root_radius), (-half_root, root_radius)])
+    .close()
+    .extrude(face_width)
+)
+cutter = groove
+for index in range(1, teeth):
+    cutter = cutter.union(
+        groove.rotate((0, 0, 0), (0, 0, 1), 360.0 * index / teeth))
+result = result.cut(cutter)
+"""
+
+    tail = ""
+    if bore:
+        tail = f"""
+bore_diameter = {_n(bore)}
+result = (
+    result.faces('>Z').workplane(centerOption='CenterOfBoundBox')
+    .circle(bore_diameter / 2.0)
+    .cutThruAll()
+)
+"""
+    return CatalogPart(
+        id=f"pulley_{key.lower()}_{teeth}t",
+        title=f"{key} timing pulley, {teeth} teeth",
+        standard=("ISO 5296 trapezoidal" if profile.half_top
+                  else f"{key} curvilinear (approximated)"),
+        code=head + body + tail,
+        parameters={"teeth": teeth, "belt": key, "face_width": face_width,
+                    "bore": bore, "pitch_diameter": pitch_d})
+
+
+
 def select(text: str) -> CatalogPart | None:
     """The standard part someone asked for, or None if this is a custom part.
 
