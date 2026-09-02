@@ -41,6 +41,17 @@ import httpx
 #: Generous by design: a local model on CPU can take minutes for one reply.
 REQUEST_TIMEOUT = float(os.getenv("CADSMITH_LLM_TIMEOUT", "600"))
 
+#: Status codes that mean "the request never reached a model, try again".
+#: 524 is Cloudflare's origin-timeout page, which a free trycloudflare.com
+#: tunnel serves after about 100 seconds even though the model is still
+#: working. Anything not listed here is a real answer and is not retried.
+TRANSIENT_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504, 522, 524})
+
+#: One agent call is worth a couple of extra attempts; more than that just
+#: makes a broken endpoint take longer to report.
+MAX_ATTEMPTS = 3
+RETRY_BACKOFF = (2.0, 5.0)
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -717,23 +728,7 @@ class OpenAICompatibleClient:
             "temperature": 0,
         }
 
-        try:
-            response = httpx.post(
-                f"{self.config.base_url}/chat/completions",
-                headers=headers, json=body, timeout=REQUEST_TIMEOUT)
-        except httpx.HTTPError as exc:
-            raise RuntimeError(
-                f"Could not reach {self.config.provider} at "
-                f"{self.config.base_url}: {exc}") from exc
-
-        if response.status_code >= 400:
-            detail = response.text[:600]
-            if response.status_code == 400 and _VISION_ERROR.search(detail):
-                raise _VisionUnsupported(detail)
-            raise RuntimeError(
-                f"{self.config.provider} returned {response.status_code} for "
-                f"model '{model}': {detail}")
-
+        response = self._post_with_retry(headers, body, model)
         payload = response.json()
         choices = payload.get("choices") or []
         if not choices:
@@ -758,12 +753,92 @@ class OpenAICompatibleClient:
         )
         return text, usage
 
+    def _post_with_retry(self, headers: dict, body: dict,
+                         model: str) -> httpx.Response:
+        """POST once, retrying only failures that never reached the model.
+
+        A gateway timeout or a dropped connection costs a whole refinement
+        iteration if it is allowed through, so it is worth a second look.
+        A 400 or a 401 is the endpoint's real answer and is raised at once.
+        """
+        url = f"{self.config.base_url}/chat/completions"
+        last = ""
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = httpx.post(url, headers=headers, json=body,
+                                      timeout=REQUEST_TIMEOUT)
+            except httpx.TimeoutException as exc:
+                # The full timeout has already been spent waiting; spending
+                # it again is worse than reporting it.
+                raise RuntimeError(
+                    f"{self.config.provider} at {self.config.base_url} did "
+                    f"not answer within {REQUEST_TIMEOUT:.0f}s. Raise "
+                    f"CADSMITH_LLM_TIMEOUT if the model is simply slow."
+                ) from exc
+            except httpx.HTTPError as exc:
+                last = (f"Could not reach {self.config.provider} at "
+                        f"{self.config.base_url}: {exc}")
+                if attempt == MAX_ATTEMPTS:
+                    raise RuntimeError(last) from exc
+            else:
+                if response.status_code < 400:
+                    return response
+
+                detail = response.text[:600]
+                if (response.status_code == 400
+                        and _VISION_ERROR.search(detail)):
+                    raise _VisionUnsupported(detail)
+
+                last = (f"{self.config.provider} returned "
+                        f"{response.status_code} for model '{model}': "
+                        f"{_explain_status(response.status_code, detail)}")
+                if (response.status_code not in TRANSIENT_STATUS
+                        or attempt == MAX_ATTEMPTS):
+                    raise RuntimeError(last)
+
+            self._note(
+                f"{self.config.provider} attempt {attempt} of "
+                f"{MAX_ATTEMPTS} failed, retrying: {last[:160]}")
+            time.sleep(RETRY_BACKOFF[min(attempt - 1,
+                                         len(RETRY_BACKOFF) - 1)])
+
+        raise RuntimeError(last)   # pragma: no cover - loop always returns
+
     def _note(self, message: str) -> None:
         if self._on_note:
             try:
                 self._on_note(message)
             except Exception:
                 pass
+
+
+def _explain_status(status: int, detail: str) -> str:
+    """Turn a gateway error page into one sentence a person can act on.
+
+    A tunnel or proxy answers with HTML, not JSON, so the raw body is a
+    screenful of markup that says nothing about the model. Recognise the
+    ones that have a known cause and say what to do about them.
+    """
+    body = detail.strip()
+    looks_like_html = body[:200].lower().lstrip().startswith(
+        ("<!doctype", "<html"))
+
+    if status in (524, 522):
+        return ("the tunnel in front of the model timed out waiting for it. "
+                "A free trycloudflare.com tunnel gives up after about 100 "
+                "seconds however long the app is willing to wait, so a slow "
+                "reply is cut off even though the model is still working. "
+                "Use a tunnel without that limit, or lower max_tokens.")
+    if status == 429:
+        return "the endpoint is rate limiting this key."
+    if status in (502, 503):
+        return ("the endpoint is up but the model behind it is not "
+                "answering. It may still be loading.")
+    if looks_like_html:
+        return (f"the endpoint answered with an HTML error page rather than "
+                f"JSON, so something in front of the model handled the "
+                f"request. First line: {' '.join(body.split())[:120]}")
+    return body
 
 
 class _VisionUnsupported(RuntimeError):

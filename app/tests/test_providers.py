@@ -62,6 +62,8 @@ class FakeOpenAIServer(BaseHTTPRequestHandler):
     requests: list[dict] = []
     reject_images: bool = False
     wrap_json_in_prose: bool = True
+    fail_next: int = 0            # fail this many requests before answering
+    fail_status: int = 524        # ...with this status
 
     def log_message(self, *_args):
         pass
@@ -76,6 +78,11 @@ class FakeOpenAIServer(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         FakeOpenAIServer.requests.append(body)
+
+        if FakeOpenAIServer.fail_next > 0:
+            FakeOpenAIServer.fail_next -= 1
+            self._html(FakeOpenAIServer.fail_status)
+            return
 
         has_image = any(
             isinstance(m.get("content"), list)
@@ -104,6 +111,17 @@ class FakeOpenAIServer(BaseHTTPRequestHandler):
         if "Validator Agent" in system:
             return json.dumps({"passed": True, "feedback": "All constraints met."})
         return CODE
+
+    def _html(self, code: int):
+        """Answer the way a tunnel or proxy does: markup, not JSON."""
+        raw = (f"<!DOCTYPE html>\n<html lang=\"en-US\"><head><title>"
+               f"trycloudflare.com | {code}: A timeout occurred</title>"
+               f"</head><body>error {code}</body></html>").encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
 
     def _json(self, code: int, payload: dict):
         raw = json.dumps(payload).encode()
@@ -226,6 +244,89 @@ def main() -> int:
           notes and "kernel metrics alone" in notes[0],
           str(notes))
     FakeOpenAIServer.reject_images = False
+
+    print("\nA gateway hiccup is retried, a real error is not")
+    slow_backoff = providers.RETRY_BACKOFF
+    providers.RETRY_BACKOFF = (0.01, 0.01)
+    try:
+        notes = []
+        client = providers.build_client(
+            LLMConfig(provider="custom", kind="openai_compatible",
+                      base_url=base_url, api_key="k",
+                      generation_model="fake-large", judge_model="fake-large"),
+            on_note=notes.append)
+
+        FakeOpenAIServer.requests.clear()
+        FakeOpenAIServer.fail_status = 524
+        FakeOpenAIServer.fail_next = 1
+        response = client.messages.create(
+            model="ignored", max_tokens=64, system="You are the Coder Agent.",
+            messages=[{"role": "user", "content": "Make a box."}])
+        check("one 524 does not lose the call",
+              "cadquery" in response.content[0].text.lower(),
+              response.content[0].text[:80])
+        check("it tried again rather than giving up",
+              len(FakeOpenAIServer.requests) == 2,
+              f"{len(FakeOpenAIServer.requests)} attempts")
+        check("the retry is visible in the run log, not silent",
+              any("retrying" in n for n in notes), str(notes))
+
+        FakeOpenAIServer.requests.clear()
+        notes.clear()
+        FakeOpenAIServer.fail_next = 99          # endpoint stays down
+        try:
+            client.messages.create(
+                model="ignored", max_tokens=64,
+                system="You are the Coder Agent.",
+                messages=[{"role": "user", "content": "Make a box."}])
+            check("an endpoint that stays down is reported", False,
+                  "no error raised")
+        except RuntimeError as exc:
+            check("an endpoint that stays down is reported", True)
+            check("it stops after MAX_ATTEMPTS",
+                  len(FakeOpenAIServer.requests) == providers.MAX_ATTEMPTS,
+                  f"{len(FakeOpenAIServer.requests)} attempts")
+            check("the message explains the tunnel, not the markup",
+                  "tunnel" in str(exc) and "100 seconds" in str(exc),
+                  str(exc)[:200])
+            check("and does not dump the HTML page at the reader",
+                  "<!DOCTYPE" not in str(exc), str(exc)[:120])
+
+        FakeOpenAIServer.requests.clear()
+        FakeOpenAIServer.fail_status = 401
+        FakeOpenAIServer.fail_next = 99
+        try:
+            client.messages.create(
+                model="ignored", max_tokens=64,
+                system="You are the Coder Agent.",
+                messages=[{"role": "user", "content": "Make a box."}])
+            check("a rejected key is not retried", False, "no error raised")
+        except RuntimeError as exc:
+            check("a rejected key is not retried",
+                  len(FakeOpenAIServer.requests) == 1,
+                  f"{len(FakeOpenAIServer.requests)} attempts")
+            check("and says so with its status",
+                  "401" in str(exc), str(exc)[:120])
+    finally:
+        providers.RETRY_BACKOFF = slow_backoff
+        FakeOpenAIServer.fail_next = 0
+        FakeOpenAIServer.fail_status = 524
+
+    print("\nGateway statuses are explained in words")
+    check("524 names the cause and the fix",
+          "tunnel" in providers._explain_status(524, "<!DOCTYPE html><html>"))
+    check("503 says the model may still be loading",
+          "loading" in providers._explain_status(503, "<html>x</html>"))
+    check("429 names rate limiting",
+          "rate limit" in providers._explain_status(429, "{}"))
+    check("an unknown HTML page is still summarised, not dumped",
+          "HTML error page" in providers._explain_status(
+              500 + 7, "<!DOCTYPE html>\n<html><body>gateway said no</body>"))
+    check("a plain JSON error is passed through as written",
+          providers._explain_status(404, '{"error": "no such model"}')
+          == '{"error": "no such model"}')
+    check("524 is treated as transient", 524 in providers.TRANSIENT_STATUS)
+    check("401 is not", 401 not in providers.TRANSIENT_STATUS)
 
     print("\nThe default provider is left alone")
     providers.clear_session_keys()
