@@ -79,6 +79,11 @@ class JobOptions:
     #: Answer an unambiguous standard-part request from the catalogue instead
     #: of generating it. Off sends everything through the five agents.
     use_catalog: bool = True
+    #: Ask the Coder for a typed operation graph, which is checked by
+    #: arithmetic before the kernel runs and stays parametric afterwards.
+    #: Anything the vocabulary cannot express falls back to a script, so this
+    #: never costs capability. Off reproduces the published pipeline.
+    use_graph: bool = False
     provider: str = DEFAULT_PROVIDER
     generation_model: str = ""
     judge_model: str = ""
@@ -91,6 +96,7 @@ class JobOptions:
             max_error_retries=max(0, min(5, int(raw.get("max_error_retries", 3)))),
             use_vision=bool(raw.get("use_vision", True)),
             ground_dimensions=bool(raw.get("ground_dimensions", True)),
+            use_graph=bool(raw.get("use_graph", False)),
             use_catalog=bool(raw.get("use_catalog", True)),
             provider=str(raw.get("provider") or DEFAULT_PROVIDER),
             generation_model=str(raw.get("generation_model") or ""),
@@ -245,6 +251,7 @@ class JobManager:
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
+        ctx.use_graph = job.options.use_graph
         set_context(ctx)
         job.status = STATUS_RUNNING
         job.started_at = time.time()
@@ -391,6 +398,7 @@ class JobManager:
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
+        ctx.use_graph = job.options.use_graph
         set_context(ctx)
         job.status = STATUS_RUNNING
         started = time.time()
