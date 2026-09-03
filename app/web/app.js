@@ -649,7 +649,6 @@ async function generate() {
     max_iterations: +$("#optIters").value,
     use_vision: $("#optVision").classList.contains("on"),
     ground_dimensions: $("#optGround").classList.contains("on"),
-    use_graph: $("#optGraph").classList.contains("on"),
     provider: $("#optProvider").value,
     generation_model: $("#optGenModel").value.trim(),
     judge_model: $("#optJudgeModel").value.trim(),
@@ -860,10 +859,6 @@ $("#optVision").onclick = () => {
 $("#optGround").onclick = () => {
   const on = $("#optGround").classList.toggle("on");
   $("#optGround").setAttribute("aria-checked", String(on));
-};
-$("#optGraph").onclick = () => {
-  const on = $("#optGraph").classList.toggle("on");
-  $("#optGraph").setAttribute("aria-checked", String(on));
 };
 
 $("#healthChip").onclick = () => {

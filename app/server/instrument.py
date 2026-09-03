@@ -42,7 +42,7 @@ from autofab.validator import (
     Validator,
 )
 
-from . import graph_coder, spec
+from . import spec
 from .providers import LLMConfig, build_client
 
 from .events import (
@@ -51,7 +51,6 @@ from .events import (
     PHASE_ERROR_FIX,
     PHASE_EXECUTE,
     PHASE_GROUND,
-    PHASE_GRAPH,
     PHASE_SPEC,
     PHASE_JUDGE,
     PHASE_LOG,
@@ -114,11 +113,6 @@ class RunContext:
     design_plan: Optional[dict] = None
     #: The most recent kernel-measured specification result.
     spec: Any = None
-    #: Ask the Coder for a typed operation graph before falling back to a
-    #: free-form script. Off reproduces the published pipeline exactly.
-    use_graph: bool = False
-    #: The graph the current version was built from, when one was used.
-    graph: Optional[dict] = None
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -318,53 +312,8 @@ def install_agent_hooks() -> None:
         lambda prompt, *a, **k: {"prompt": prompt},
         lambda plan: {"design_plan": plan},
     )
-    _code_inner = agents.generate_code
-
-    def coded(design_plan, prompt, *args, **kwargs):
-        """Try for an operation graph, fall back to the stock Coder.
-
-        The fallback is unconditional: a vocabulary of eight operations does
-        not cover everything CadQuery does, and a request it cannot express
-        must still be built. Which path ran is emitted either way, so the hit
-        rate is measurable rather than assumed.
-        """
-        ctx = _current.get()
-        if ctx is None or not ctx.use_graph:
-            return _code_inner(design_plan, prompt, *args, **kwargs)
-
-        ctx.graph = None
-        result = graph_coder.generate(
-            design_plan, prompt, agents._call_claude,
-            on_note=lambda note: ctx.emit(PHASE_GRAPH, STATUS_INFO, note))
-        if result.used_graph:
-            ctx.graph = result.graph
-            ctx.emit(PHASE_GRAPH, STATUS_OK,
-                     f"Built from {len(result.graph['ops'])} typed operations, "
-                     f"checked before the kernel ran.",
-                     ops=[op["type"] for op in result.graph["ops"]],
-                     attempts=result.attempts, graph=result.graph)
-            return result.code
-
-        if result.is_design_error:
-            # The graph was well formed and described something unbuildable.
-            # The script path still runs, because refusing to produce anything
-            # is worse - but this is a finding, not a routine miss, and the
-            # script version will very likely carry the same mistake with
-            # nothing in front of the kernel able to see it.
-            ctx.emit(PHASE_GRAPH, STATUS_FAILED,
-                     f"The operation graph described a part that cannot be "
-                     f"built, so it was written as a script instead and the "
-                     f"same mistake may survive: {result.fell_back}",
-                     attempts=result.attempts, design_error=True)
-        else:
-            ctx.emit(PHASE_GRAPH, STATUS_INFO,
-                     f"No operation graph for this part, writing a script "
-                     f"instead: {result.fell_back}",
-                     attempts=result.attempts)
-        return _code_inner(design_plan, prompt, *args, **kwargs)
-
     agents.generate_code = wrap(
-        coded,
+        agents.generate_code,
         PHASE_CODE,
         lambda design_plan, prompt, *a, **k: {},
         lambda code: {"code": code, "lines": len(code.splitlines())},
@@ -646,16 +595,10 @@ class InstrumentedValidator(Validator):
             # show the reason a version was refused rather than only that it
             # was - and can show it disagreeing with the Judge.
             "spec": ctx.spec.to_dict() if ctx.spec is not None else None,
-            #: The operation graph this version was compiled from, when the
-            #: graph path was taken. None means it was written as a script.
-            "graph": ctx.graph,
         }
         ctx.versions.append(version)
-        # Both belong to the version just published. The Refiner writes later
-        # iterations as scripts, and a stale graph on one of those would claim
-        # it was built from operations it was not.
+        # Belongs to the version just published, so it must not carry over.
         ctx.spec = None
-        ctx.graph = None
         ctx.emit(PHASE_VERSION, STATUS_OK, **version)
 
 

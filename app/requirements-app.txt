@@ -28,12 +28,6 @@ uvicorn[standard]
 # path uses its own SDK, from requirements.txt.
 httpx
 
-# Serves the app to other agents over the Model Context Protocol, so an
-# engineer can generate and verify parts from inside Claude Code, ChatGPT or
-# any other MCP client. Only app/tools/mcp_server.py imports it; the web app
-# runs without it.
-mcp>=2.0
-
 # Makes Python trust the OS certificate store rather than only certifi.
 # Required on corporate networks that inspect TLS, where every HTTPS
 # connection is re-signed by a company CA the OS trusts and certifi does not.
