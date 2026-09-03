@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,7 +33,9 @@ from .jobs import JobManager, JobOptions, STATUS_DONE, STATUS_ERROR
 APP_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = APP_ROOT.parent
 WEB_DIR = APP_ROOT / "web"
-RUNS_DIR = APP_ROOT / "runs"
+#: Overridable so a test can run a whole server against a scratch
+#: directory instead of filling the real run history.
+RUNS_DIR = Path(os.getenv("CADSMITH_RUNS_DIR") or (APP_ROOT / "runs"))
 DATA_DIR = PROJECT_ROOT / "data" / "dataset_v2"
 
 MEDIA_TYPES = {
