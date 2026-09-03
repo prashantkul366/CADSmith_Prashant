@@ -36,8 +36,13 @@ from typing import Any, Callable, Optional
 from app.catalog import grounding
 from autofab.executor import Executor, ExecutionResult
 from autofab.pipeline import Pipeline
-from autofab.validator import Validator, ValidationReport
+from autofab.validator import (
+    ValidationCheck,
+    ValidationReport,
+    Validator,
+)
 
+from . import spec
 from .providers import LLMConfig, build_client
 
 from .events import (
@@ -46,6 +51,7 @@ from .events import (
     PHASE_ERROR_FIX,
     PHASE_EXECUTE,
     PHASE_GROUND,
+    PHASE_SPEC,
     PHASE_JUDGE,
     PHASE_LOG,
     PHASE_PLAN,
@@ -102,6 +108,11 @@ class RunContext:
     #: request names. Off reproduces the published behaviour exactly, which
     #: is what makes it an ablation rather than a setting.
     ground_dimensions: bool = True
+    #: The plan this run is building to, kept so the built solid can be
+    #: measured against the claims that were made about it.
+    design_plan: Optional[dict] = None
+    #: The most recent kernel-measured specification result.
+    spec: Any = None
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -265,6 +276,7 @@ def install_agent_hooks() -> None:
             # so that check still applies.
             plan = _plan_inner(prompt, *args, **kwargs)
             _refuse_empty_plan(plan)
+            ctx.design_plan = plan if isinstance(plan, dict) else None
             return plan
         grounded, facts = grounding.ground(prompt)
         ctx.emit(
@@ -291,6 +303,7 @@ def install_agent_hooks() -> None:
                 + (f' The model said: "{said}"' if said else "")
             ) from None
         _refuse_empty_plan(plan)
+        ctx.design_plan = plan if isinstance(plan, dict) else None
         return plan
 
     agents.plan = wrap(
@@ -473,8 +486,69 @@ class InstrumentedValidator(Validator):
         if ctx.judge_error:
             self._demote_silent_pass(report, ctx.judge_error)
 
+        self._apply_spec(ctx, report)
         self._publish_version(ctx, report, geometry)
         return report
+
+    @staticmethod
+    def _apply_spec(ctx: RunContext, report: ValidationReport) -> None:
+        """Settle measurable claims with the kernel, over the Judge's head.
+
+        The Judge has been observed passing a plate with one hole where four
+        were asked for, and rejecting a part whose measurements were exactly
+        right. Neither verdict survives contact with a measurement, so where
+        the plan said something checkable, the measurement decides.
+        """
+        step = ctx.version_dir() / "model.step"
+        if not ctx.design_plan or not step.exists():
+            return
+
+        result = spec.check(ctx.design_plan, step)
+        ctx.spec = result
+        if result.error:
+            ctx.emit(PHASE_SPEC, STATUS_INFO, result.summary(),
+                     iteration=ctx.iteration)
+            return
+        if not result.checked:
+            return
+
+        for item in result.checks:
+            report.checks.append(ValidationCheck(
+                metric=f"spec_{item.key}",
+                actual=1.0 if item.passed else 0.0,
+                target=1.0,
+                passed=item.passed or not item.hard,
+                message=(f"{item.label}: wanted {item.expected}, "
+                         f"measured {item.actual}"),
+            ))
+
+        judge_said = next(
+            (c.passed for c in report.checks if c.metric == "llm_judge"), None)
+
+        if not result.ok:
+            report.all_passed = False
+            note = ("The Judge accepted this, but the kernel disagrees. "
+                    if judge_said else "")
+            report.feedback_text = (
+                f"{note}{result.feedback()}\n\n{report.feedback_text}").strip()
+            ctx.emit(PHASE_SPEC, STATUS_FAILED, result.summary(),
+                     iteration=ctx.iteration, spec=result.to_dict(),
+                     overrode_judge=bool(judge_said))
+            return
+
+        # Everything measurable is right. That does not by itself overturn a
+        # Judge rejection - it may have seen something no assertion covers -
+        # but the Refiner is given the measurements so it is not left acting
+        # on a description of the part that measurement contradicts.
+        ctx.emit(PHASE_SPEC, STATUS_OK, result.summary(),
+                 iteration=ctx.iteration, spec=result.to_dict(),
+                 disputes_judge=judge_said is False)
+        if judge_said is False:
+            report.feedback_text = (
+                f"{result.feedback()}\n\nEvery measurable claim in the plan "
+                f"is met. If you still see a problem, it is in something not "
+                f"measured above - do not restate a dimension as wrong when "
+                f"it measures correct.\n\n{report.feedback_text}").strip()
 
     @staticmethod
     def _demote_silent_pass(report: ValidationReport, error: str) -> None:
@@ -517,8 +591,13 @@ class InstrumentedValidator(Validator):
             "method": ctx.method,
             "instruction": ctx.instruction,
             "changes": list(ctx.changes),
+            # What the kernel measured against the plan, so the client can
+            # show the reason a version was refused rather than only that it
+            # was - and can show it disagreeing with the Judge.
+            "spec": ctx.spec.to_dict() if ctx.spec is not None else None,
         }
         ctx.versions.append(version)
+        ctx.spec = None
         ctx.emit(PHASE_VERSION, STATUS_OK, **version)
 
 

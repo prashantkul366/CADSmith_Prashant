@@ -477,9 +477,16 @@ function renderPlan(plan) {
 function renderKernelFacts(version) {
   const geometry = version.geometry || {};
   const bbox = geometry.bounding_box || {};
+  // A version the kernel measured and refused is not "not yet validated" -
+  // it was validated, and it failed. Naming the measurement that failed is
+  // more use than a generic label.
+  const failedSpec = version.spec && version.spec.ok === false
+    ? (version.spec.checks || []).find(c => !c.passed && c.hard) : null;
   $("#mtitle").textContent =
     version.source === "edit" ? "Model updated"
     : version.source === "catalog" ? "Standard part"
+    : failedSpec ? `Measured wrong: ${failedSpec.label} `
+        + `${failedSpec.actual}, wanted ${failedSpec.expected}`
     : (version.passed ? "Validated" : "Attempt not yet validated");
   $("#mfacts").innerHTML = [
     ["bbox mm", `${fmt(bbox.xlen)}×${fmt(bbox.ylen)}×${fmt(bbox.zlen)}`],
@@ -495,6 +502,24 @@ function renderKernelFacts(version) {
   if (icon) icon.style.color = version.passed ? "var(--valid)" : "var(--warn)";
 }
 
+function specRows(spec) {
+  // The measured checks, shown whether they passed or not: the point of this
+  // panel is that a number was read off the solid, not asserted about it.
+  if (!spec || spec.error || !spec.checks || !spec.checks.length) return "";
+  const rows = spec.checks.map((c) => {
+    const state = c.passed ? "ok" : (c.hard ? "bad" : "soft");
+    const mark = c.passed ? "&#10003;" : (c.hard ? "&#10007;" : "&#8210;");
+    return `<div class="specrow ${state}">
+      <span class="specmark">${mark}</span>
+      <span class="speclabel">${esc(c.label)}</span>
+      <span class="specval">${esc(c.actual)}</span>
+      <span class="specwant">wanted ${esc(c.expected)}</span>
+    </div>`;
+  }).join("");
+  return `<div class="eyebrow" style="margin:14px 0 6px">MEASURED BY THE KERNEL</div>
+    <div class="specgrid">${rows}</div>`;
+}
+
 function renderValidation(version) {
   const passed = version.passed;
   const renderUrl = version.has_render
@@ -506,10 +531,22 @@ function renderValidation(version) {
   const judged = version.judge_passed !== null
                  && version.judge_passed !== undefined;
 
+  const spec = version.spec || null;
+  const specFailed = spec && spec.ok === false;
+
   let heading, body, attribution;
   if (judged) {
-    heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
-    body = version.judge_feedback || version.feedback_text || "";
+    if (specFailed && version.judge_passed) {
+      // The Judge accepted a part the kernel can prove wrong. Saying
+      // "accepted" here would report the verdict that lost.
+      heading = "Refused on measurement";
+      body = "The Judge accepted this, but the kernel measured the part "
+        + "against the plan and found it does not match. A measurement "
+        + "settles a dimension; an opinion about one does not.";
+    } else {
+      heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
+      body = version.judge_feedback || version.feedback_text || "";
+    }
     const judgeModel = (S.judgeModel || "").toUpperCase() || "JUDGE MODEL";
     attribution = judgeModel + " · " + (version.has_render
       ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY");
@@ -548,6 +585,7 @@ function renderValidation(version) {
         <div class="judge-src">${esc(attribution)}</div>
       </div>
     </div>
+    ${specRows(spec)}
     ${renderUrl ? `
       <div class="eyebrow" style="margin-bottom:6px">WHAT THE JUDGE SAW</div>
       <img class="rthumb" id="rthumb" src="${renderUrl}" alt="Three-view render" />

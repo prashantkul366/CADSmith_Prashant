@@ -35,6 +35,7 @@ PHASE_JOB = "job"            # Job lifecycle: queued / running / done / failed
 PHASE_LOG = "log"            # Raw console line from the pipeline itself
 PHASE_EDIT = "edit"          # Natural-language edit: which path was taken
 PHASE_GROUND = "ground"      # Standard dimensions retrieved for the Planner
+PHASE_SPEC = "spec"          # Kernel-measured checks against the design plan
 PHASE_CATALOG = "catalog"    # A standard part served instead of generated
 
 STATUS_STARTED = "started"

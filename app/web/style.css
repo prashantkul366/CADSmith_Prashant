@@ -446,6 +446,22 @@ textarea.src{
 .verdict p{font-size:11px;color:var(--ink-2);line-height:1.5;white-space:pre-wrap}
 .judge-src{font-family:var(--mono);font-size:9px;letter-spacing:.08em;
   color:var(--ink-dim);margin-top:6px}
+/* Kernel-measured checks. Each row is a number read off the built solid,
+   so the value is what the eye should land on, not the label. */
+.specgrid{display:flex;flex-direction:column;gap:1px;background:var(--line-soft);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.specrow{display:grid;grid-template-columns:14px 1fr auto;gap:4px 8px;
+  align-items:baseline;padding:7px 10px;background:var(--panel-2);
+  font-family:var(--mono);font-size:10.5px;line-height:1.4}
+.specmark{font-size:11px}
+.specrow.ok .specmark{color:var(--valid)}
+.specrow.bad .specmark{color:var(--err)}
+.specrow.soft .specmark{color:var(--warn)}
+.speclabel{color:var(--ink-dim);letter-spacing:.02em}
+.specval{color:var(--ink);font-weight:600;text-align:right;
+  font-variant-numeric:tabular-nums}
+.specrow.bad .specval{color:var(--err)}
+.specwant{grid-column:2 / -1;color:var(--ink-dim);opacity:.75;font-size:9.5px}
 .rthumb{width:100%;border-radius:var(--r);border:1px solid var(--line);
   background:#fff;display:block;cursor:zoom-in}
 .rcap{font-family:var(--mono);font-size:9px;letter-spacing:.07em;
