@@ -428,8 +428,11 @@ async function selectVersion(index, options) {
   $("#drawBtn").disabled = false;
   // A parameter patch is rebuilt by the kernel with no model call, so editing
   // stays available without an API key; the agent path reports its own need.
+  // Not while a run is still going, though: versions land one at a time, and
+  // each one re-ran this, so the control read as usable mid-run while
+  // applyEdit refused the click - a button that looks live and does nothing.
   const canRebuild = !!(S.health && S.health.checks
-                        && S.health.checks.cadquery.ok);
+                        && S.health.checks.cadquery.ok) && !S.busy;
   $("#cmdIn").disabled = !canRebuild;
   $("#applyBtn").disabled = !canRebuild;
 }
