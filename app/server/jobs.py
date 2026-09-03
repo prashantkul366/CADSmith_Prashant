@@ -34,6 +34,7 @@ from .events import (
     STATUS_OK,
     STATUS_STARTED,
 )
+from . import budget as budget_mod
 from .providers import DEFAULT_PROVIDER, LLMConfig, resolve
 from .replay import clone_run, is_replayable, replay_into
 from .instrument import (
@@ -79,6 +80,10 @@ class JobOptions:
     #: Answer an unambiguous standard-part request from the catalogue instead
     #: of generating it. Off sends everything through the five agents.
     use_catalog: bool = True
+    #: Tokens this run may spend before it is stopped. Every refinement round
+    #: is a paid call and the vision Judge sends an image each time, so a loop
+    #: that is not converging is a bill rather than a slow run.
+    token_budget: int = budget_mod.DEFAULT_BUDGET
     provider: str = DEFAULT_PROVIDER
     generation_model: str = ""
     judge_model: str = ""
@@ -91,6 +96,8 @@ class JobOptions:
             max_error_retries=max(0, min(5, int(raw.get("max_error_retries", 3)))),
             use_vision=bool(raw.get("use_vision", True)),
             ground_dimensions=bool(raw.get("ground_dimensions", True)),
+            token_budget=max(0, int(raw.get("token_budget")
+                                    or budget_mod.DEFAULT_BUDGET)),
             use_catalog=bool(raw.get("use_catalog", True)),
             provider=str(raw.get("provider") or DEFAULT_PROVIDER),
             generation_model=str(raw.get("generation_model") or ""),
@@ -245,6 +252,7 @@ class JobManager:
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
+        ctx.budget = budget_mod.Budget(limit=job.options.token_budget)
         set_context(ctx)
         job.status = STATUS_RUNNING
         job.started_at = time.time()
@@ -336,14 +344,19 @@ class JobManager:
                 iterations=len(result.iterations),
                 llm_calls=result.total_llm_calls,
                 tokens=job.tokens,
+                spend=budget_mod.summary(job.tokens, ctx.budget),
                 total_ms=result.total_time_ms,
             )
         except Exception as exc:  # surfaced to the client, never swallowed
             job.status = STATUS_ERROR
-            job.error = (str(exc) if isinstance(exc, PipelineMessage)
-                         else f"{type(exc).__name__}: {exc}")
+            job.error = (str(exc) if isinstance(
+                exc, (PipelineMessage, budget_mod.BudgetExceeded))
+                else f"{type(exc).__name__}: {exc}")
             job.versions = list(ctx.versions)
+            job.tokens = agents.get_token_usage()
             sink.emit(PHASE_JOB, STATUS_FAILED, job.error,
+                      tokens=job.tokens,
+                      spend=budget_mod.summary(job.tokens, ctx.budget),
                       traceback=traceback.format_exc()[-4000:])
         finally:
             job.finished_at = time.time()
@@ -391,6 +404,7 @@ class JobManager:
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
+        ctx.budget = budget_mod.Budget(limit=job.options.token_budget)
         set_context(ctx)
         job.status = STATUS_RUNNING
         started = time.time()

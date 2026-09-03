@@ -241,12 +241,24 @@ function renderUsage() {
            + `<span>${name}${a.calls > 1 ? ` ×${a.calls}` : ""}</span></span>`;
     });
 
+  // On a metered backend the useful number is not just what this run spent
+  // but how close it came to the ceiling that stops it, so show both once
+  // the run is a meaningful way through its allowance.
+  const cap = S.spend && S.spend.budget;
+  const share = cap ? total / cap : 0;
+  const budgetNote = share > 0.25
+    ? `<span class="ubudget${share > 0.8 ? " near" : ""}">`
+      + `${Math.round(share * 100)}% of the ${compact(cap)} budget</span>`
+    : "";
+  const costNote = S.spend && S.spend.estimated_cost !== undefined
+    ? `<span class="ucost">≈ $${S.spend.estimated_cost.toFixed(4)}</span>` : "";
+
   strip.hidden = false;
   strip.innerHTML =
     `<span class="utot"><b>${total.toLocaleString()}</b> tokens · `
     + `${seen.input.toLocaleString()} in · ${seen.output.toLocaleString()} out · `
     + `${seen.calls} call${seen.calls === 1 ? "" : "s"}</span>`
-    + parts.join("");
+    + costNote + budgetNote + parts.join("");
 }
 
 /* ═══════════════════════ pipeline progress ═══════════════════════ */
@@ -360,6 +372,13 @@ function handleEvent(event) {
   if (phase === "job") {
     if (status === "started" && data.llm) {
       setModelLabels(data.llm.generation_model, data.llm.judge_model);
+    }
+    if (data && data.spend) {
+      // Arrives with the closing job event, after the last token event has
+      // already drawn the strip - so redraw it, or the ceiling and the cost
+      // estimate never appear.
+      S.spend = data.spend;
+      renderUsage();
     }
     if (status === "ok") finishRun(data);
     if (status === "failed") failRun(message);
@@ -621,6 +640,7 @@ async function generate() {
   S.busy = true;
   S.versions = [];
   S.selected = -1;
+  S.spend = null;
   S.designPlan = null;
   S.converged = false;
   S.replay = false;

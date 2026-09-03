@@ -42,6 +42,7 @@ from autofab.validator import (
     Validator,
 )
 
+from . import budget as budget_mod
 from . import spec
 from .providers import LLMConfig, build_client
 
@@ -113,6 +114,9 @@ class RunContext:
     design_plan: Optional[dict] = None
     #: The most recent kernel-measured specification result.
     spec: Any = None
+    #: What this run may spend. Checked before every model call, so a loop
+    #: that is not converging stops costing money instead of continuing.
+    budget: Optional[budget_mod.Budget] = None
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -231,8 +235,13 @@ def install_agent_hooks() -> None:
     _orig_call = agents._call_claude
 
     def _call_claude(*args, **kwargs):
-        reply = _orig_call(*args, **kwargs)
         ctx = _current.get()
+        if ctx is not None and ctx.budget is not None:
+            # Checked before the call, not after: a request already in flight
+            # is already billable, so the only useful place to stop is here.
+            from autofab import agents as _agents
+            ctx.budget.check(_agents.get_token_usage())
+        reply = _orig_call(*args, **kwargs)
         if ctx is not None and isinstance(reply, str):
             ctx.last_reply = reply
         return reply

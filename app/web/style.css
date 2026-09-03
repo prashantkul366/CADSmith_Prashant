@@ -448,6 +448,15 @@ textarea.src{
   color:var(--ink-dim);margin-top:6px}
 /* Kernel-measured checks. Each row is a number read off the built solid,
    so the value is what the eye should land on, not the label. */
+/* Spend against the per-run ceiling. Quiet until the run is a meaningful
+   way through its allowance, and only loud when it is nearly gone. */
+.ubudget{font-family:var(--mono);font-size:9.5px;letter-spacing:.03em;
+  color:var(--ink-dim);padding:2px 6px;border:1px solid var(--line);
+  border-radius:100px;white-space:nowrap}
+.ubudget.near{color:var(--warn);border-color:var(--warn)}
+.ucost{font-family:var(--mono);font-size:9.5px;color:var(--ink);
+  font-weight:600;white-space:nowrap}
+
 .specgrid{display:flex;flex-direction:column;gap:1px;background:var(--line-soft);
   border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .specrow{display:grid;grid-template-columns:14px 1fr auto;gap:4px 8px;
