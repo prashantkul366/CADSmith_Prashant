@@ -146,6 +146,31 @@ class Job:
         }
 
 
+def _reverted_version(job, new_code: str, base_index: int):
+    """The earlier version this code reproduces, if it reproduces one.
+
+    Returns the iteration number of an existing version whose code the
+    Refiner has handed back verbatim, ignoring the one it was asked to
+    edit; ``None`` when the code is genuinely new. Whitespace is
+    normalised so a reformatted copy still counts as the same code.
+    """
+    def norm(text: str) -> str:
+        return "\n".join(line.rstrip() for line in text.strip().splitlines())
+
+    candidate = norm(new_code)
+    for version in job.versions:
+        index = version.get("iteration")
+        if index == base_index:
+            continue
+        path = job.directory / f"v{index}" / "code.py"
+        try:
+            if norm(path.read_text()) == candidate:
+                return index
+        except OSError:
+            continue
+    return None
+
+
 class JobManager:
     """Owns job lifecycle, worker thread and on-disk layout."""
 
@@ -424,6 +449,26 @@ class JobManager:
                           reason=plan.reason)
                 new_code = agents.refine_geometry(
                     code, instruction, job.design_plan, job.prompt)
+                reverted = _reverted_version(job, new_code,
+                                             previous["iteration"])
+                if reverted is not None:
+                    # The Refiner is given the current code and the original
+                    # prompt. A smaller model sometimes answers from the
+                    # prompt alone and hands back an earlier version whole,
+                    # which would silently undo every edit since. Recording
+                    # it would also leave the next edit building on the
+                    # reverted code, so stop and keep what the person has.
+                    job.status = STATUS_DONE
+                    sink.emit(
+                        PHASE_JOB, STATUS_FAILED,
+                        f"Not applied - the Refiner returned version "
+                        f"{reverted} unchanged instead of editing version "
+                        f"{previous['iteration']}, which would have undone "
+                        f"your earlier edits. Version "
+                        f"{previous['iteration']} is still the latest. Try "
+                        f"naming the dimension you want changed.",
+                        edit=True)
+                    return
 
             ctx.source = "edit"
             ctx.instruction = instruction

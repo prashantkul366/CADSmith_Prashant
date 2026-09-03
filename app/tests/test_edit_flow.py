@@ -166,6 +166,45 @@ def main() -> int:
           (not unchanged) or last_job_event.status == "failed",
           f"versions={len(job.versions)}, last={last_job_event.status}")
 
+    print("\nA Refiner that hands back an earlier version is refused")
+    # Observed live against Qwen3-VL-8B: asked to thicken a wall after two
+    # earlier edits, it answered from the original prompt and returned v0
+    # byte-for-byte. Recording that would have undone both edits silently.
+    from app.server import jobs as _jobs
+
+    first_code = (job.directory / "v0" / "code.py").read_text()
+    latest = job.versions[-1]["iteration"]
+    check("a verbatim earlier version is spotted",
+          _jobs._reverted_version(job, first_code, latest) == 0,
+          str(_jobs._reverted_version(job, first_code, latest)))
+    check("reformatting does not hide it",
+          _jobs._reverted_version(
+              job, first_code.replace("\n", "  \n"), latest) == 0)
+    check("the version being edited is not itself a revert",
+          _jobs._reverted_version(
+              job, (job.directory / f"v{latest}" / "code.py").read_text(),
+              latest) is None)
+    check("genuinely new code is allowed through",
+          _jobs._reverted_version(job, first_code + "\nresult = result\n",
+                                  latest) is None)
+
+    versions_before = len(job.versions)
+    # The Refiner draws from the code queue, so scripting v0's code there is
+    # exactly the failure seen live.
+    reverting = FakeClaude(plan=PLAN, code=[first_code],
+                           verdicts=[(True, "All constraints met.")])
+    with patched(reverting):
+        manager.submit_edit(job, "add a fillet all round")
+        wait_for(job)
+    events = manager.sink(job.id).all()
+    last = [e for e in events if e.phase == "job"][-1]
+    check("no version is recorded for the revert",
+          len(job.versions) == versions_before,
+          f"{versions_before} -> {len(job.versions)}")
+    check("and the person is told what happened",
+          last.status == "failed" and "undone your earlier edits" in last.message,
+          f"{last.status}: {last.message[:140]}")
+
     shutil.rmtree(runs, ignore_errors=True)
 
     print(f"\n{'=' * 58}")

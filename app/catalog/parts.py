@@ -343,6 +343,12 @@ _CUSTOM_CONTEXT = (
     "housing", "bracket", "mount", "holder", "carrier", "enclosure",
     "manifold", "adapter", "adaptor", "fixture", "jig", "puller",
     "block for", "plate for", "body for", "seat for", "cover for",
+    # A feature that receives the standard part is not the standard part.
+    # "A groove for a 20x2.5 o-ring" wants the groove; handing back the
+    # o-ring is the silent substitution this whole guard exists to stop.
+    "groove for", "gland for", "slot for", "recess for", "pocket for",
+    "channel for", "bore for", "hole for", "counterbore for",
+    "clearance for", "cutout for", "cut-out for", "land for",
 )
 
 _SIZE = re.compile(r"\bM\s?(\d+(?:\.\d+)?)(?![\d.])", re.I)
@@ -351,6 +357,22 @@ _BEARING = re.compile(r"\b(6\d{3}|608)\b")
 _ORING = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:id|inside)?\s*[x×]\s*"
                     r"(\d+(?:\.\d+)?)", re.I)
 _PIN = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?)", re.I)
+
+#: The same two parts written out longhand. An engineer is as likely to type
+#: "20mm inside diameter, 2.5mm cord" as "20x2.5", and the compact forms above
+#: match neither. Each half is looked up on its own so the order of the two
+#: phrases in the sentence does not matter.
+_ORING_ID = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:inside|internal|inner|i\.?d\.?)"
+    r"(?:\s*(?:diameter|dia\.?))?", re.I)
+_ORING_CORD = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:cord|section|thickness)"
+    r"(?:\s*(?:diameter|dia\.?))?", re.I)
+_PIN_DIA = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:diameter|dia\.?|thick|across)", re.I)
+#: "a 3mm dowel pin" - the diameter sits in front of the noun with no word
+#: naming it, which is how the size is most often written.
+_PIN_BARE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm)?\s+dowel", re.I)
 _LENGTH_WORDS = re.compile(r"(\d+(?:\.\d+)?)\s*mm\s+long", re.I)
 
 
@@ -546,12 +568,20 @@ def select(text: str) -> CatalogPart | None:
         found = _ORING.search(text)
         if found:
             return o_ring(float(found.group(1)), float(found.group(2)))
+        inner, cord = _ORING_ID.search(text), _ORING_CORD.search(text)
+        if inner and cord:
+            return o_ring(float(inner.group(1)), float(cord.group(1)))
         return None
 
     if "dowel" in lowered:
         found = _PIN.search(text)
         if found:
             return dowel_pin(float(found.group(1)), float(found.group(2)))
+        diameter = _PIN_DIA.search(text) or _PIN_BARE.search(text)
+        length = _LENGTH_WORDS.search(text)
+        if diameter and length:
+            return dowel_pin(float(diameter.group(1)),
+                             float(length.group(1)))
         return None
 
     size_match = _SIZE.search(text)

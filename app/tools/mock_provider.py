@@ -45,6 +45,7 @@ class Handler(BaseHTTPRequestHandler):
     fail = "none"
     delay = 0.0
     seen_coder_calls = 0
+    seen_refine_calls: int = 0
     part = mock_parts.PARTS[0]
     forced = None
 
@@ -141,6 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             # counter carries over and the second run is accepted on its
             # first attempt, skipping the refinement loop.
             Handler.seen_coder_calls = 0
+            Handler.seen_refine_calls = 0
             Handler.part = part
             # Echo the request into the description, as a real Planner would.
             # A fixed string would make consecutive runs indistinguishable on
@@ -161,9 +163,21 @@ class Handler(BaseHTTPRequestHandler):
             verdict = Handler.part.accept if passed else Handler.part.reject
             return self._maybe_wrap(json.dumps(
                 {"passed": passed, "feedback": verdict}))
-        if "Refiner Agent" in system or "Error Refiner" in system:
+        if "Error Refiner" in system:
             Handler.seen_coder_calls += 1
             return part.code_fixed
+        if "Refiner Agent" in system:
+            Handler.seen_coder_calls += 1
+            Handler.seen_refine_calls += 1
+            if Handler.seen_refine_calls == 1:
+                return part.code_fixed
+            # A Refiner that replays one fixed script hands back code the job
+            # already has, which reads as an edit being reverted. Mark each
+            # later reply so successive edits differ, the way real Refiner
+            # output does. A comment keeps the geometry identical, so tests
+            # that measure the solid still see what they scripted.
+            return (f"{part.code_fixed}\n"
+                    f"# refiner edit {Handler.seen_refine_calls}\n")
         Handler.seen_coder_calls += 1
         return part.code_first
 
