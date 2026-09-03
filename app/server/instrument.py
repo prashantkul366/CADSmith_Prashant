@@ -230,10 +230,42 @@ def install_agent_hooks() -> None:
 
     _plan_inner = agents.plan
 
+    def _refuse_empty_plan(plan) -> None:
+        """Stop when the plan describes no part at all.
+
+        A smaller model answers "write me a poem" by filling the schema in
+        rather than declining: components empty, every bounding-box extent
+        zero, sometimes a note saying outright that this is not a part. The
+        pipeline would then spend four more agents and several minutes
+        producing a featureless block. Say so now instead.
+        """
+        if not isinstance(plan, dict):
+            return
+        components = plan.get("components")
+        bbox = ((plan.get("dimensions") or {}).get("overall_bbox") or {})
+        extents = [bbox.get(k) for k in ("xlen", "ylen", "zlen")]
+        sized = any(isinstance(v, (int, float)) and v > 0 for v in extents)
+        if sized or components:
+            return
+        note = " ".join(str(plan.get("notes") or "").split())[:200]
+        raise PipelineMessage(
+            "The Planner did not find a part to make in this request: it "
+            "returned no components and no overall size. Describe a part - "
+            "its shape, size and features."
+            + (f' The Planner noted: "{note}"' if note else "")
+        )
+
     def grounded_plan(prompt, *args, **kwargs):
         ctx = _current.get()
-        if ctx is None or not ctx.ground_dimensions:
+        if ctx is None:
+            # No run context: the pipeline is being used outside the app.
             return _plan_inner(prompt, *args, **kwargs)
+        if not ctx.ground_dimensions:
+            # Grounding is a per-run ablation; refusing an empty plan is not,
+            # so that check still applies.
+            plan = _plan_inner(prompt, *args, **kwargs)
+            _refuse_empty_plan(plan)
+            return plan
         grounded, facts = grounding.ground(prompt)
         ctx.emit(
             PHASE_GROUND,
@@ -244,7 +276,7 @@ def install_agent_hooks() -> None:
             added_chars=len(grounded) - len(prompt),
         )
         try:
-            return _plan_inner(grounded, *args, **kwargs)
+            plan = _plan_inner(grounded, *args, **kwargs)
         except json.JSONDecodeError:
             # The overwhelmingly common cause is a prompt the model declined
             # or did not read as a part - "write me a poem", an insult, a
@@ -258,6 +290,8 @@ def install_agent_hooks() -> None:
                 "its shape, size and features."
                 + (f' The model said: "{said}"' if said else "")
             ) from None
+        _refuse_empty_plan(plan)
+        return plan
 
     agents.plan = wrap(
         grounded_plan,

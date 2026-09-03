@@ -168,6 +168,71 @@ def main() -> int:
     check("the outage is reported as a failed judge event",
           (PHASE_JUDGE, STATUS_FAILED) in [(e.phase, e.status) for e in sink2.all()])
 
+    print("\nA prompt with no part in it is refused, not built")
+    # A smaller model answers "write me a poem" by filling the plan schema in
+    # rather than declining, so the JSONDecodeError path never fires. Observed
+    # live against Qwen3-VL-8B: the app spent 10 model calls and 280 seconds
+    # producing a featureless block.
+    from autofab import agents as _agents
+    from app.server.instrument import PipelineMessage
+
+    empty_plan = {
+        "description": "A poetic description of the sea.",
+        "components": [],
+        "dimensions": {"overall_bbox": {"xlen": 0, "ylen": 0, "zlen": 0},
+                       "key_dimensions": {}},
+        "notes": "This is a poetic request, not a 3D part.",
+    }
+
+    for label, ground in (("with grounding on", True),
+                          ("with grounding off", False)):
+        sink3 = EventSink(path=job_dir / f"events_empty_{int(ground)}.jsonl")
+        set_context(RunContext(sink=sink3, job_dir=job_dir, part_name="x",
+                               ground_dimensions=ground))
+        poet = FakeClaude(plan=empty_plan, code=[CODE_RIGHT],
+                          verdicts=[(True, "ok")])
+        try:
+            with patched(poet):
+                _agents.plan("write me a poem about the sea")
+            check(f"refused {label}", False, "no error raised")
+        except PipelineMessage as exc:
+            check(f"refused {label}", True)
+            check(f"the message names the problem {label}",
+                  "no components and no overall size" in str(exc),
+                  str(exc)[:120])
+            check(f"and quotes the Planner's own note {label}",
+                  "not a 3D part" in str(exc), str(exc)[:200])
+        except Exception as exc:                       # noqa: BLE001
+            check(f"refused {label}", False,
+                  f"{type(exc).__name__}: {exc}")
+
+    print("\nA real plan is still allowed through")
+    sink4 = EventSink(path=job_dir / "events_realplan.jsonl")
+    set_context(RunContext(sink=sink4, job_dir=job_dir, part_name="x"))
+    with patched(FakeClaude(plan=PLAN, code=[CODE_RIGHT],
+                            verdicts=[(True, "ok")])):
+        allowed = _agents.plan(PROMPT)
+    check("a sized plan is returned untouched", allowed == PLAN)
+
+    for label, plan in (
+        ("a component with no bbox is a part", {
+            "components": ["boss"],
+            "dimensions": {"overall_bbox": {"xlen": 0, "ylen": 0, "zlen": 0}}}),
+        ("a bbox with no components is a part", {
+            "components": [],
+            "dimensions": {"overall_bbox": {"xlen": 10, "ylen": 0, "zlen": 0}}}),
+        ("a plan missing dimensions entirely", {"components": ["boss"]}),
+    ):
+        sink5 = EventSink(path=job_dir / "events_probe.jsonl")
+        set_context(RunContext(sink=sink5, job_dir=job_dir, part_name="x"))
+        try:
+            with patched(FakeClaude(plan=plan, code=[CODE_RIGHT],
+                                    verdicts=[(True, "ok")])):
+                _agents.plan(PROMPT)
+            check(label, True)
+        except PipelineMessage as exc:
+            check(label, False, f"wrongly refused: {exc}")
+
     set_context(None)
     shutil.rmtree(work, ignore_errors=True)
 
