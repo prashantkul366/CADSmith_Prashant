@@ -536,13 +536,21 @@ function renderValidation(version) {
 
   let heading, body, attribution;
   if (judged) {
-    if (specFailed && version.judge_passed) {
-      // The Judge accepted a part the kernel can prove wrong. Saying
-      // "accepted" here would report the verdict that lost.
+    if (specFailed) {
+      // A measurement outranks an opinion about the same quantity, so it
+      // leads whatever the Judge concluded. Crediting the Judge for a
+      // rejection the kernel can prove would also contradict the status
+      // bar above, which names the measurement that failed.
+      const failed = (spec.checks || []).filter(c => !c.passed && c.hard);
+      const named = failed.map(c => `${c.label} measured ${c.actual}, `
+        + `wanted ${c.expected}`).join("; ");
       heading = "Refused on measurement";
-      body = "The Judge accepted this, but the kernel measured the part "
-        + "against the plan and found it does not match. A measurement "
-        + "settles a dimension; an opinion about one does not.";
+      body = (version.judge_passed
+        ? "The Judge accepted this, but the kernel disagrees: "
+        : "The kernel measured this part against the plan: ") + named + ". "
+        + "A measurement settles a dimension; an opinion about one does not."
+        + (version.judge_passed || !version.judge_feedback ? ""
+           : ` The Judge also rejected it: ${version.judge_feedback}`);
     } else {
       heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
       body = version.judge_feedback || version.feedback_text || "";
@@ -638,6 +646,7 @@ async function generate() {
     max_iterations: +$("#optIters").value,
     use_vision: $("#optVision").classList.contains("on"),
     ground_dimensions: $("#optGround").classList.contains("on"),
+    use_graph: $("#optGraph").classList.contains("on"),
     provider: $("#optProvider").value,
     generation_model: $("#optGenModel").value.trim(),
     judge_model: $("#optJudgeModel").value.trim(),
@@ -848,6 +857,10 @@ $("#optVision").onclick = () => {
 $("#optGround").onclick = () => {
   const on = $("#optGround").classList.toggle("on");
   $("#optGround").setAttribute("aria-checked", String(on));
+};
+$("#optGraph").onclick = () => {
+  const on = $("#optGraph").classList.toggle("on");
+  $("#optGraph").setAttribute("aria-checked", String(on));
 };
 
 $("#healthChip").onclick = () => {
