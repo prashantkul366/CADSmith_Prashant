@@ -115,6 +115,9 @@ class RunContext:
     design_plan: Optional[dict] = None
     #: The most recent kernel-measured specification result.
     spec: Any = None
+    #: Why the last execution failed, kept so a run that never produced a
+    #: solid can say what actually went wrong instead of "no geometry".
+    last_error_type: str = ""
     #: What this run may spend. Checked before every model call, so a loop
     #: that is not converging stops costing money instead of continuing.
     budget: Optional[budget_mod.Budget] = None
@@ -310,9 +313,16 @@ def install_agent_hooks() -> None:
             # or did not read as a part - "write me a poem", an insult, a
             # question. A bare JSONDecodeError makes that look like a fault
             # in the app.
-            said = " ".join((ctx.last_reply or "").split())[:220]
+            reply = ctx.last_reply or ""
+            said = " ".join(reply.split())[:220]
+            # Two different failures, and they were being reported as one.
+            # "The model replied with prose" was said of a reply that opened
+            # with a brace and ran to a closing one - it was a plan, it just
+            # would not parse - which sent the reader looking at their prompt
+            # instead of at their model.
+            key = "plan.malformed" if "{" in reply else "plan.prose"
             raise PipelineMessage(
-                i18n.t("plan.prose", ctx.lang)
+                i18n.t(key, ctx.lang)
                 + (i18n.t("plan.prose.said", ctx.lang, said=said) if said else "")
             ) from None
         _refuse_empty_plan(plan)
@@ -436,6 +446,7 @@ class InstrumentedExecutor(Executor):
             )
             self._file_artifacts(ctx, name, cadquery_code, result)
         else:
+            ctx.last_error_type = result.error_type or ""
             ctx.emit(
                 PHASE_EXECUTE,
                 STATUS_FAILED,

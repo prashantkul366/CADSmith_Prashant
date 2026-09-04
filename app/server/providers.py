@@ -632,31 +632,16 @@ def _strip_images(messages: list[dict]) -> tuple[list[dict], bool]:
     return out, stripped
 
 
-def repair_json(text: str) -> str:
-    """Recover a JSON object from a reply that wrapped it in prose.
+def _scan(text: str):
+    """Walk the text once, reporting whether each character is inside a string.
 
-    The Planner and the Judge both parse their replies strictly.  Frontier
-    models honour "output only JSON"; smaller local ones often add a sentence
-    before or after, which would otherwise abort the run.  Only the outermost
-    balanced object is extracted, and only when the text does not already
-    parse - a well-behaved reply is never touched.
+    Every repair below has to leave string contents alone: a URL carries "//"
+    and a description carries braces, and a repair that edited either would
+    corrupt the very reply it was trying to save.
     """
-    candidate = text.strip()
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```[a-zA-Z]*\s*", "", candidate)
-        candidate = re.sub(r"\s*```$", "", candidate).strip()
-    try:
-        json.loads(candidate)
-        return candidate
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    start = candidate.find("{")
-    if start == -1:
-        return text
-    depth, in_string, escaped = 0, False, False
-    for index in range(start, len(candidate)):
-        char = candidate[index]
+    in_string, escaped = False, False
+    for index, char in enumerate(text):
+        yield index, char, in_string
         if in_string:
             if escaped:
                 escaped = False
@@ -664,20 +649,152 @@ def repair_json(text: str) -> str:
                 escaped = True
             elif char == '"':
                 in_string = False
-            continue
-        if char == '"':
+        elif char == '"':
             in_string = True
-        elif char == "{":
+
+
+def _strip_comments(text: str) -> str:
+    """Remove // and /* */ comments, which JSON does not allow.
+
+    Qwen3-VL annotates its plan as it writes it - ``"side_length": 25.98,  //
+    diameter * sin(60)`` - which is how a person writes JSON and not how JSON
+    is defined. The value is perfectly good; only the note beside it is not.
+    """
+    out, skip_to = [], 0
+    for index, char, in_string in _scan(text):
+        if index < skip_to:
+            continue
+        if in_string or char != "/":
+            out.append(char)
+            continue
+        following = text[index + 1:index + 2]
+        if following == "/":
+            end = text.find("\n", index)
+            skip_to = len(text) if end == -1 else end
+        elif following == "*":
+            end = text.find("*/", index + 2)
+            skip_to = len(text) if end == -1 else end + 2
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+#: A value written as arithmetic rather than as a number: ``30 * 0.866``.
+#: Anchored to the places a JSON value may start, so a number inside a string
+#: and a lone negative sign are both left alone.
+_ARITHMETIC = re.compile(
+    r"(?<=[:\[,])(\s*)(-?\d+(?:\.\d+)?(?:\s*[-+*/]\s*-?\d+(?:\.\d+)?)+)"
+    r"(\s*)(?=[,\]}\n])")
+
+
+def _evaluate(expression: str) -> Optional[float]:
+    """The value of a numeric expression, or None if it is anything else.
+
+    Parsed rather than evaluated as text: only numbers and the four operators
+    are accepted, so a name, a call, an attribute or an import cannot reach
+    this from a model reply.
+    """
+    import ast
+
+    try:
+        tree = ast.parse(expression.strip(), mode="eval")
+    except SyntaxError:
+        return None
+
+    def value(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            inner = value(node.operand)
+            return None if inner is None else (
+                inner if isinstance(node.op, ast.UAdd) else -inner)
+        if isinstance(node, ast.BinOp):
+            left, right = value(node.left), value(node.right)
+            if left is None or right is None:
+                return None
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return None if right == 0 else left / right
+            return None
+        return None
+
+    result = value(tree.body)
+    if result is None or result != result or result in (float("inf"), float("-inf")):
+        return None
+    return result
+
+
+def _resolve_arithmetic(text: str) -> str:
+    """Replace ``30 * 0.866`` with the number it comes to.
+
+    This is reading the number the model wrote, not choosing one: the
+    expression is its own arithmetic, and refusing to evaluate it only means
+    the run dies with the answer already on the page. Anything that is not
+    plain arithmetic over numeric literals is left exactly as it is, so a
+    reply this cannot salvage still fails rather than being guessed at.
+    """
+    strings = {index for index, _, in_string in _scan(text) if in_string}
+
+    def replace(match):
+        if match.start(2) in strings:
+            return match.group(0)
+        result = _evaluate(match.group(2))
+        if result is None:
+            return match.group(0)
+        rendered = f"{result:.6f}".rstrip("0").rstrip(".") or "0"
+        return f"{match.group(1)}{rendered}{match.group(3)}"
+
+    return _ARITHMETIC.sub(replace, text)
+
+
+def _outermost_object(text: str) -> str:
+    """The first balanced ``{...}``, so prose either side of it is dropped."""
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    for index, char, in_string in _scan(text):
+        if index < start or in_string:
+            continue
+        if char == "{":
             depth += 1
         elif char == "}":
             depth -= 1
             if depth == 0:
-                extracted = candidate[start:index + 1]
-                try:
-                    json.loads(extracted)
-                    return extracted
-                except (json.JSONDecodeError, ValueError):
-                    return text
+                return text[start:index + 1]
+    return text
+
+
+def repair_json(text: str) -> str:
+    """Recover a JSON object from a reply that is not quite JSON.
+
+    The Planner and the Judge both parse their replies strictly.  Frontier
+    models honour "output only JSON"; smaller local ones do not, in four ways
+    seen against real backends: a sentence either side of the object, a
+    markdown fence around it, ``//`` notes beside the values, and values
+    written as the arithmetic that produced them.  Each repair is tried in
+    turn and the result returned as soon as it parses, so a well-behaved
+    reply is never touched, and a reply none of them can save is returned
+    unchanged - the run then fails, which is the honest outcome.
+    """
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        candidate = re.sub(r"^```[a-zA-Z]*\s*", "", candidate)
+        candidate = re.sub(r"\s*```$", "", candidate).strip()
+
+    for repair in (None, _strip_comments, _outermost_object, _resolve_arithmetic):
+        if repair is not None:
+            candidate = repair(candidate)
+        try:
+            json.loads(candidate)
+            return candidate
+        except (json.JSONDecodeError, ValueError):
+            continue
     return text
 
 

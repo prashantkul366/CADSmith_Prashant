@@ -344,6 +344,48 @@ def main() -> int:
     server.shutdown()
     shutil.rmtree(runs, ignore_errors=True)
 
+    # -- what a smaller model actually sends --------------------------------
+    print("\nRepairing a reply that is not quite JSON")
+    tidy = '{"a": 1, "b": [1, 2, 3]}'
+    check("a well-formed reply is returned untouched",
+          repair_json(tidy) == tidy)
+    check("a fenced reply loses its fence",
+          json.loads(repair_json('```json\n{"a": 2}\n```')) == {"a": 2})
+    check("prose either side of the object is dropped",
+          json.loads(repair_json('Here you go:\n{"a": 3}\nHope that helps.'))
+          == {"a": 3})
+
+    # Both of these came off Qwen3-VL-8B against the real endpoint: it
+    # annotates its plan as it writes it, and writes derived values as the
+    # arithmetic that produced them. Neither is JSON, and without this the
+    # run dies with a correct plan on the page.
+    commented = ('{"key_dimensions": {\n'
+                 '  "side": 25.98,  // side = diameter * sin(60)\n'
+                 '  "height": 15 /* half the diameter */\n}}')
+    check("// and /* */ notes beside the values are removed",
+          json.loads(repair_json(commented))
+          == {"key_dimensions": {"side": 25.98, "height": 15}})
+
+    arithmetic = '{"side": 30 * 0.86602540378, "vol": 25 * 50, "n": 10 - 4}'
+    repaired = json.loads(repair_json(arithmetic))
+    check("a value written as arithmetic is resolved",
+          abs(repaired["side"] - 30 * 0.86602540378) < 1e-6
+          and repaired["vol"] == 1250 and repaired["n"] == 6,
+          str(repaired))
+
+    check("a string keeps its slashes and braces",
+          json.loads(repair_json(
+              '{"notes": "see https://x.test/a//b and {braces}"}'))["notes"]
+          == "see https://x.test/a//b and {braces}")
+
+    # The repairs must never invent a value. Anything they cannot resolve is
+    # returned as it came, so the run fails honestly instead of on a guess.
+    for hopeless in ('{"a": foo(1)}', '{"a": 5 / 0}',
+                     '{"a": 1 + __import__("os").system("x")}',
+                     "I cannot make a part from that."):
+        check(f"unsalvageable input is returned unchanged: {hopeless[:26]}",
+              repair_json(hopeless) == hopeless)
+
     print(f"\n{'=' * 58}")
     if failures:
         print(f"{len(failures)} CHECK(S) FAILED: {', '.join(failures)}")

@@ -92,10 +92,21 @@ class SpecReport:
         if not self.checks:
             return "The plan stated nothing measurable to check."
         bad = self.failures
-        if not bad:
-            return f"{len(self.checks)} measured checks, all met."
-        parts = "; ".join(f"{c.label} - {c.actual}" for c in bad)
-        return f"{len(bad)} of {len(self.checks)} measured checks failed: {parts}"
+        if bad:
+            parts = "; ".join(f"{c.label} - {c.actual}" for c in bad)
+            return (f"{len(bad)} of {len(self.checks)} measured checks failed: "
+                    f"{parts}")
+        # An advisory check that did not hold is not a failure, but it is not
+        # "all met" either. Saying so was overstating the result in exactly
+        # the direction this whole module exists to stop: the rod above came
+        # back "3 measured checks, all met" while the size it was planned to
+        # did not match what was built.
+        noted = [c for c in self.checks if not c.passed]
+        if noted:
+            parts = "; ".join(f"{c.label} - {c.actual}" for c in noted)
+            return (f"{len(self.checks)} measured checks, none blocking; "
+                    f"{len(noted)} differ from the plan: {parts}")
+        return f"{len(self.checks)} measured checks, all met."
 
     def feedback(self) -> str:
         """What to tell the Refiner: the measurements, not an opinion."""

@@ -343,6 +343,26 @@ class JobManager:
             except OSError:
                 pass
 
+            # A run that exported nothing is not a run that finished. autofab
+            # reports "not converged" for it, which the app was passing on as
+            # STATUS_OK with "showing the best attempt" - and there was no
+            # attempt to show. An API client saw status done, error null.
+            if not ctx.versions:
+                job.status = STATUS_ERROR
+                job.error = i18n.t(
+                    "job.nogeometry", job.options.lang,
+                    retries=job.options.max_error_retries)
+                if ctx.last_error_type:
+                    job.error += i18n.t("job.nogeometry.lasterror",
+                                        job.options.lang,
+                                        error_type=ctx.last_error_type)
+                sink.emit(PHASE_JOB, STATUS_FAILED, job.error,
+                          converged=False, iterations=0,
+                          llm_calls=result.total_llm_calls, tokens=job.tokens,
+                          spend=budget_mod.summary(job.tokens, ctx.budget),
+                          total_ms=result.total_time_ms)
+                return
+
             sink.emit(
                 PHASE_JOB,
                 STATUS_OK,

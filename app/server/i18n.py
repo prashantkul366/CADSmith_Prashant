@@ -55,6 +55,18 @@ MESSAGES: dict[str, dict[str, str]] = {
               "かったことを意味します。形状・寸法・特徴を含めて、作成する"
               "部品を説明してください。",
     },
+    "plan.malformed": {
+        "en": "The Planner's reply was shaped like a design plan but would "
+              "not parse, so there is nothing to build from. That is usually "
+              "a smaller model writing notes or arithmetic in among the "
+              "values; the app repairs the common cases and could not repair "
+              "this one. A stronger generation model is the reliable fix.",
+        "ja": "プランナーの応答は設計プランの形をしていましたが、解析できません"
+              "でした。多くの場合、小さめのモデルが値の中に注記や計算式を"
+              "書き込むことが原因です。よくあるケースはアプリ側で修復します"
+              "が、今回は修復できませんでした。確実な対処は、より強力な生成"
+              "モデルを使うことです。",
+    },
     "plan.prose.said": {
         "en": ' The model said: "{said}"',
         "ja": "（モデルの応答: 「{said}」）",
@@ -104,6 +116,19 @@ MESSAGES: dict[str, dict[str, str]] = {
               "part - it is parametric source.",
         "ja": "モデルを呼び出さずに {ms} ミリ秒で構築しました。パラメトリック"
               "なソースなので、他の部品と同じように編集できます。",
+    },
+
+    "job.nogeometry": {
+        "en": "The run produced no geometry: the generated script still would "
+              "not execute after {retries} repair attempts, so nothing was "
+              "built and nothing was exported.",
+        "ja": "この実行は形状を生成しませんでした。{retries} 回の修復を試みても"
+              "生成されたスクリプトが実行できなかったため、構築も書き出しも"
+              "行われていません。",
+    },
+    "job.nogeometry.lasterror": {
+        "en": " The last failure was {error_type}.",
+        "ja": "（最後のエラー: {error_type}）",
     },
 
     # -- edits --------------------------------------------------------------
