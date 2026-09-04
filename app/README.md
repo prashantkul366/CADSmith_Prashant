@@ -374,6 +374,14 @@ and never change one. The refusals are translated first and most carefully:
 「Oリング用の溝」 is a groove, and handing back the o-ring is exactly the
 silent substitution the catalogue guard exists to stop.
 
+**Editing in Japanese** works without a model too. The natural-language
+editor matched English words the same way the router did, so 「厚さを 5mm に
+する」 fell through to the Refiner — slow when a backend is configured, and
+refused outright when one is not. It is rewritten the same way, with the same
+guard, and the refusals matter more than the patches: 「補強リブを追加する」
+still has to come out as a rib, or the editor patches an unrelated number and
+reports it as one.
+
 **Writing prompts in Japanese** is a question about the model, not about the
 app: the prompt reaches the Planner exactly as typed. Standard dimensions are
 still retrieved (a designation written flush against a kanji — 6203軸受 — is

@@ -1,4 +1,12 @@
-"""Read a Japanese request with the catalogue's English vocabulary.
+"""Read Japanese CAD language with the English vocabulary the app matches on.
+
+Two callers, one technique. ``to_english`` serves the catalogue router;
+``to_english_instruction`` serves the natural-language editor. Both turn a
+Japanese sentence into a lookup key for patterns that were written in
+English, and neither is a translation: the result is often not a sentence,
+and is never shown to anyone or sent to a model.
+
+## The catalogue
 
 The router recognises a standard part by English keyword - "washer", "20mm
 bore", "24 teeth".  A Japanese request carries exactly the same information
@@ -253,3 +261,124 @@ def to_english(text: str) -> str:
     if flags:
         out = " ".join(flags) + " " + out
     return " ".join(out.split())
+
+
+# ---------------------------------------------------------------------------
+# The natural-language editor
+# ---------------------------------------------------------------------------
+
+#: What an edit instruction says, in the words ``server/edits.py`` matches on.
+#: A different table from ``TERMS`` because the editor reads different things:
+#: it wants the dimension noun (``thickness``), the direction (``increase``),
+#: and above all the words that mean *new geometry* - a rib, a fillet, a
+#: pocket - because those must be refused as parameter patches and handed to
+#: the Refiner instead. Getting 「補強リブを追加する」 wrong in the other
+#: direction would patch some unrelated number and call it a rib.
+#:
+#: Longest first: 肉厚 must win over 厚, and 面取り over 取り.
+EDIT_TERMS = (
+    # dimensions, in the canonical form edits._SYNONYMS already knows
+    ("外径", "outer diameter"),
+    ("内径", "inner diameter"),
+    ("肉厚", "wall thickness"),
+    ("壁厚", "wall thickness"),
+    ("板厚", "thickness"),
+    ("厚さ", "thickness"),
+    ("厚み", "thickness"),
+    ("直径", "diameter"),
+    ("半径", "radius"),
+    ("全長", "length"),
+    ("長さ", "length"),
+    ("高さ", "height"),
+    ("深さ", "depth"),
+    ("軸穴", "bore"),
+    ("ボア", "bore"),
+    ("穴数", "hole count"),
+    ("個数", "count"),
+    ("歯数", "teeth"),
+    ("歯幅", "face width"),
+    ("線径", "wire diameter"),
+    ("自由長", "free length"),
+    ("モジュール", "module"),
+    ("ピッチ", "pitch"),
+    ("角度", "angle"),
+    ("公差", "tolerance"),
+    ("間隔", "spacing"),
+    ("フランジ", "flange"),
+    ("ハブ", "hub"),
+    ("幅", "width"),
+    ("穴", "hole"),
+    ("径", "diameter"),
+    # new geometry: these have to survive into the English so the editor
+    # refuses the patch and calls the Refiner
+    ("補強リブ", "reinforcing rib"),
+    ("リブ", "rib"),
+    ("ガセット", "gusset"),
+    ("面取り", "chamfer"),
+    ("フィレット", "fillet"),
+    ("角丸", "fillet"),
+    ("ねじ山", "thread"),
+    ("ローレット", "knurl"),
+    ("テーパ", "taper"),
+    ("スロット", "slot"),
+    ("長穴", "slot"),
+    ("ポケット", "pocket"),
+    ("ボス", "boss"),
+    ("シェル", "shell"),
+    ("肉抜き", "shell"),
+    ("ミラー", "mirror"),
+    ("回転", "rotate"),
+    ("押し出し", "extrude"),
+    ("ロフト", "loft"),
+    ("スイープ", "sweep"),
+    # direction
+    ("増やす", "increase"),
+    ("増やして", "increase"),
+    ("減らす", "reduce"),
+    ("減らして", "reduce"),
+    ("大きく", "larger"),
+    ("小さく", "smaller"),
+    ("太く", "widen"),
+    ("細く", "thinner"),
+    ("厚く", "thicken"),
+    ("薄く", "thinner"),
+    ("長く", "lengthen"),
+    ("短く", "shorten"),
+    ("高く", "taller"),
+    ("低く", "shorter"),
+    ("追加", "add"),
+    ("足して", "add"),
+    ("削除", "remove"),
+    ("除去", "remove"),
+    ("なくす", "remove"),
+    ("移動", "move"),
+    ("変更", "change"),
+    ("にする", "set to"),
+    ("してください", " "),
+    ("します", " "),
+    ("して", " "),
+    ("する", " "),
+    ("ミリ", "mm"),
+    ("度", "degrees"),
+)
+
+#: Counter suffixes. 「6 個の穴」 counts holes; left in place the 個 would sit
+#: between the number and the noun and push them apart, and the editor picks
+#: the number nearest the parameter it matched.
+COUNTERS = ("個", "本", "枚", "箇所", "つ", "カ所", "ヶ所")
+
+
+def to_english_instruction(text: str) -> str:
+    """An edit instruction in the vocabulary ``server/edits.py`` matches on.
+
+    Word order is largely preserved, because the editor resolves an ambiguous
+    request by taking the number nearest the parameter it matched: 「厚さを
+    5mm にする」 has to come out with the 5 still beside the thickness.
+    """
+    out = unicodedata.normalize("NFKC", text or "")
+    for japanese, english in EDIT_TERMS:
+        out = out.replace(japanese, f" {english} ")
+    for counter in COUNTERS:
+        out = out.replace(counter, " ")
+    out = "".join(" " if ch in PARTICLES else ch for ch in out)
+    return " ".join(spaced(out).split())

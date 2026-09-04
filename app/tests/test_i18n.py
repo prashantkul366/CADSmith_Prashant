@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from app.catalog import grounding, japanese, router  # noqa: E402
-from app.server import budget, i18n, spec  # noqa: E402
+from app.server import budget, edits, i18n, spec  # noqa: E402
 from app.server.jobs import JobOptions  # noqa: E402
 
 WEB = ROOT / "app" / "web"
@@ -261,6 +261,36 @@ def main() -> int:  # noqa: C901 - a checklist, not a branchy function
           router.select("A bracket that takes four M8 screws") is None)
     check("English text is never rewritten",
           not japanese.has_japanese("An M8x30 socket head cap screw"))
+
+    print("\nA Japanese edit instruction is understood without a model")
+    washer = ("import cadquery as cq\n\n"
+              "inner_diameter = 10.5\nouter_diameter = 20.0\nthickness = 2.0\n\n"
+              "result = (cq.Workplane('XY').circle(outer_diameter / 2)\n"
+              "          .circle(inner_diameter / 2).extrude(thickness))\n")
+    for instruction, name, value in (
+            ("厚さを 5mm にする", "thickness", 5.0),
+            ("外径を 30mm にする", "outer_diameter", 30.0),
+            ("内径を 12mm に変更", "inner_diameter", 12.0),
+            ("厚さを 1.5cm にする", "thickness", 15.0)):
+        plan = edits.plan_edit(washer, instruction)
+        got = [(c.name, c.new) for c in plan.changes]
+        check(f"{instruction} patches {name} to {value:g}",
+              got == [(name, value)], f"{got or plan.reason}")
+
+    # The refusals matter more than the patches: a structural request that
+    # slipped through would patch some unrelated number and report it as a rib.
+    for instruction, word in (("補強リブを追加する", "rib"),
+                              ("面取りを 2mm 追加してください", "chamfer"),
+                              ("フィレットを 3mm にする", "fillet"),
+                              ("肉抜きする", "shell")):
+        plan = edits.plan_edit(washer, instruction)
+        check(f"{instruction} is refused as a shape change",
+              not plan.changes and word in plan.reason, plan.reason)
+
+    check("an English instruction is unaffected",
+          [(c.name, c.new) for c in
+           edits.plan_edit(washer, "make it 15 mm thick").changes]
+          == [("thickness", 15.0)])
 
     print("\nStandard dimensions are found in a Japanese request too")
     for request, subject in (("NEMA 17ステッピングモーター用のマウント", "NEMA 17"),
