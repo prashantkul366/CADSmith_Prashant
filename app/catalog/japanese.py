@@ -46,9 +46,27 @@ CUSTOM_CONTEXT = (
     ("筐体", "enclosure"),
     ("エンクロージャ", "enclosure"),
     ("ブラケット", "bracket"),
-    ("取付板", "bracket"),
-    ("取り付け板", "bracket"),
+    # 取付 covers every compound a mounting part is written as - 取付板,
+    # 取付プレート, 取付座, 取付ブラケット - which the individual entries did
+    # not: a live run substituted an actual M8 screw for 「M8 のボルト 4 本を
+    # 通す取付プレート」, the exact silent substitution this guard exists to
+    # stop. English caught the same request on "mount" in "mounting plate".
+    ("取付", "mount"),
+    ("取り付け", "mount"),
+    ("台座", "mount"),
+    ("土台", "mount"),
+    ("架台", "mount"),
     ("マウント", "mount"),
+    ("ケース", "enclosure"),
+    # A part something else passes through is not that something else.
+    ("通す", "clearance for"),
+    ("通る", "clearance for"),
+    ("貫通", "clearance for"),
+    # The catalogue holds no plates, so reading 板 or プレート as a custom
+    # part cannot cost a standard one - and 板厚 is consumed as a measurement
+    # before this scan runs.
+    ("プレート", "plate for"),
+    ("板", "plate for"),
     ("ホルダ", "holder"),
     ("ホルダー", "holder"),
     ("キャリア", "carrier"),

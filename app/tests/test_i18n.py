@@ -246,7 +246,13 @@ def main() -> int:  # noqa: C901 - a checklist, not a branchy function
     for request in ("内径20mm、線径2.5mmのOリング用の溝を持つカバープレート",
                     "M8ボルト4本用の取付ブラケット",
                     "608軸受用のハウジング",
-                    "6203軸受のハウジング"):
+                    "6203軸受のハウジング",
+                    # Substituted an actual M8 screw on a live run: 取付板 was
+                    # in the table but 取付プレート was not, and English caught
+                    # the same request on the "mount" in "mounting plate".
+                    "M8 のボルト 4 本を通す、100mm x 60mm、厚さ 8mm の取付プレート。",
+                    "M8 のねじが通る穴を 4 つ持つ、厚さ 8mm の板。",
+                    "6203 軸受が入るケース"):
         check(f"{request[:26]} falls through", router.select(request) is None,
               str(router.select(request)))
 
