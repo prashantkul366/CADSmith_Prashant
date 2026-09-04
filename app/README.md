@@ -345,6 +345,40 @@ run options. See **Model backends** above.
 the model backend and the metrics stack. Click it for detail. A demo that will
 not work says so before you start.
 
+## English and Japanese
+
+The interface has a language switch in the header, and opens in Japanese by
+itself on a machine whose browser asks for it. The choice is remembered.
+
+**What is translated.** Everything a person reads: the interface, the run
+log's own lines, the verdict, the measured checks, the token strip, the
+server's refusals, and the benchmark prompts. A Japanese prompt card inserts
+the Japanese prompt — the same benchmark entry, term for term, with every
+dimension and axis carried across, so the part built from either language is
+the same part.
+
+**What is not, deliberately.** What the model reads. The Refiner is steered by
+English instructions, so the kernel measurements it is given
+(`spec.SpecReport.feedback`) stay English whatever the interface is set to;
+translating them would change what the pipeline does rather than what it says.
+The environment panel's details are also left alone — they quote the machine
+(a version string, a package name, a certificate path), and quoting is not
+translating.
+
+**Standard parts work in Japanese.** The router recognises a part by English
+keyword, so a Japanese request would otherwise lose the whole catalogue.
+`catalog/japanese.py` rewrites the request into the vocabulary those patterns
+already speak — 「M10の平座金」 finds the same ISO 7089 washer — and the
+rewrite is tried only after the original found nothing, so it can add a match
+and never change one. The refusals are translated first and most carefully:
+「Oリング用の溝」 is a groove, and handing back the o-ring is exactly the
+silent substitution the catalogue guard exists to stop.
+
+**Writing prompts in Japanese** is a question about the model, not about the
+app: the prompt reaches the Planner exactly as typed. Standard dimensions are
+still retrieved (a designation written flush against a kanji — 6203軸受 — is
+matched), and a catalogue part costs no model call at all.
+
 ## Layout
 
 ```
@@ -359,8 +393,10 @@ app/
     drawing.py     orthographic projections composed into a sheet
     catalog_run.py serves a standard part instead of generating it
     replay.py      re-emits a recorded run at presentation speed
+    i18n.py        the messages a person reads, in English and Japanese
   web/
     index.html  style.css  app.js  api.js  viewer.js  vendor/three.min.js
+    i18n.js        the interface dictionary and the language switch
   catalog/
     standards.py   dimensions from ISO 4762/4014/4032/7089/273/2338, ISO 15,
                    and NEMA ICS 16 motor frames
@@ -369,6 +405,7 @@ app/
     library.py     gears, fasteners and sprockets from cq_gears/cq_warehouse
     router.py      is this request a standard part, and which one
     verify.py      build it and check it before anyone relies on it
+    japanese.py    reads a Japanese request with the router's vocabulary
   tools/
     seed_demo_run.py   record demo runs without an API key
     mock_provider.py   a local stand-in for a model backend
@@ -625,6 +662,11 @@ before anything is manufactured.
                                                     # state between runs
 .venv/bin/python -m app.tests.test_providers        # non-Anthropic backend, real kernel
 .venv/bin/python -m app.tests.test_bedrock         # AWS Bedrock wiring
+.venv/bin/python -m app.tests.test_i18n            # both dictionaries, the
+                                                    # catalogue in Japanese, and
+                                                    # what stays English
+.venv/bin/python -m app.tests.ui_lang_check        # the switch in a browser,
+                                                    # and a Japanese run
 .venv/bin/python -m app.tests.ui_check              # real browser, needs a server
 .venv/bin/python -m app.tests.ui_generate_check     # a real run in a browser,
                                                     # plus provider failures

@@ -36,13 +36,9 @@ const S = {
 };
 
 /* ── the five stages shown while a run is in flight ─────────────────── */
-const STAGES = [
-  { key: "plan",    label: "Planning the part" },
-  { key: "code",    label: "Writing CadQuery" },
-  { key: "execute", label: "Building the solid" },
-  { key: "judge",   label: "Validating geometry" },
-  { key: "done",    label: "Ready" },
-];
+/* Keys, not labels: the strip is redrawn from these on every event and on
+   every language change, so the text has to be looked up at draw time. */
+const STAGES = ["plan", "code", "execute", "judge", "done"];
 
 /* ═══════════════════════ helpers ═══════════════════════ */
 
@@ -97,8 +93,9 @@ function setCode(code, highlightKeys) {
       (_m, lead, line) => `${lead}<span class="hot">${line}</span>`);
   });
   $("#hl").innerHTML = html + "\n";
-  $("#codeStat").textContent = code
-    ? `${code.split("\n").length} LINES · PYTHON` : "— — —";
+  S.codeLines = code ? code.split("\n").length : 0;
+  $("#codeStat").textContent = S.codeLines
+    ? t("code.stat", { n: S.codeLines }) : t("code.empty");
 }
 
 /* ═══════════════════════ health ═══════════════════════ */
@@ -109,7 +106,7 @@ async function loadHealth() {
     S.health = await API.health();
   } catch (_) {
     chip.className = "health bad";
-    chip.querySelector("span").textContent = "SERVER UNREACHABLE";
+    chip.querySelector("span").textContent = t("health.unreachable");
     return;
   }
 
@@ -117,26 +114,31 @@ async function loadHealth() {
   const canGenerate = S.health.can_generate;
   chip.className = "health " + (S.health.ok ? "ok" : (canGenerate ? "warn" : "bad"));
   chip.querySelector("span").textContent =
-    S.health.ok ? "ALL SYSTEMS READY"
-    : canGenerate ? "DEGRADED" : "NOT READY";
+    S.health.ok ? t("health.ready")
+    : canGenerate ? t("health.degraded") : t("health.notready");
 
-  $("#diagRows").innerHTML = Object.entries(checks).map(([name, check]) => `
+  $("#diagRows").innerHTML = Object.entries(checks).map(([name, check]) => {
+    // The row name is interface text; the detail beside it quotes the
+    // environment - a version string, a package name, a certificate path -
+    // and is shown exactly as reported. The backend row is the exception:
+    // it is a sentence about what to do next, so it is translated.
+    const label = I18N.has("diag." + name)
+      ? t("diag." + name) : name.replace(/_/g, " ");
+    const detail = (name === "model_backend" && !check.ok)
+      ? t("banner.backend") : check.detail;
+    return `
     <div class="drow">
       <span class="dot ${check.ok ? "ok" : "bad"}"></span>
-      <b>${esc(name.replace(/_/g, " "))}</b>
-      <span>${esc(check.detail)}</span>
-    </div>`).join("");
+      <b>${esc(label)}</b>
+      <span>${esc(detail)}</span>
+    </div>`;
+  }).join("");
 
   if (!checks.model_backend.ok) {
     $("#keyBanner").hidden = false;
     const catalogue = checks.catalog && checks.catalog.ok;
-    $("#keyBannerText").textContent = catalogue
-      ? "No model backend configured, so the five agents cannot run. Standard "
-        + "parts still work — ask for a fastener, bearing, gear, pulley or "
-        + "spring and it comes from the catalogue, exactly and instantly. "
-        + "Anything custom needs a provider below."
-      : "No model backend configured, so the agents cannot run. Choose a "
-        + "provider below, or replay a recorded run.";
+    $("#keyBannerText").textContent =
+      t(catalogue ? "banner.catalog" : "banner.nobackend");
   } else {
     $("#keyBanner").hidden = true;
   }
@@ -152,13 +154,32 @@ async function loadHealth() {
 /* ═══════════════════════ examples ═══════════════════════ */
 
 async function loadExamples() {
-  let examples = [];
-  try { examples = await API.examples(); } catch (_) { return; }
-  $("#samples").innerHTML = examples.map(e => `
-    <button class="sample" data-prompt="${esc(e.prompt)}">
-      <b>${esc(e.id.toUpperCase())} · ${esc(e.tier.toUpperCase())}</b>
-      <small>${esc(e.prompt.length > 120 ? e.prompt.slice(0, 120) + "…" : e.prompt)}</small>
-    </button>`).join("");
+  try { S.examples = await API.examples(); } catch (_) { return; }
+  renderExamples();
+}
+
+/* The prompt a sample inserts is the prompt it shows. Where a translation
+   exists it is a term-for-term rendering of the same benchmark entry - every
+   dimension and axis carried across - so the part is the same part in either
+   language. Where one does not, the English prompt is shown unchanged rather
+   than a machine rendering of it. */
+function samplePrompt(example) {
+  const key = "sample." + example.id;
+  return I18N.has(key) ? t(key) : example.prompt;
+}
+
+function renderExamples() {
+  const examples = S.examples || [];
+  $("#samples").innerHTML = examples.map(e => {
+    const prompt = samplePrompt(e);
+    const tier = String(e.tier || "").toLowerCase() === "demo"
+      ? t("tier.demo") : String(e.tier || "").toUpperCase();
+    return `
+    <button class="sample" data-prompt="${esc(prompt)}">
+      <b>${esc(e.id.toUpperCase())} · ${esc(tier)}</b>
+      <small>${esc(prompt.length > 120 ? prompt.slice(0, 120) + "…" : prompt)}</small>
+    </button>`;
+  }).join("");
   $$("#samples .sample").forEach(button => {
     button.onclick = () => {
       $("#prompt").value = button.dataset.prompt;
@@ -174,10 +195,14 @@ async function loadExamples() {
    makes a per-agent breakdown possible at all - the job record only ever
    holds the run total. */
 
-const AGENT_NAMES = {
-  plan: "planner", code: "coder", error_fix: "error refiner",
+/* Canonical ids, translated only when drawn. The counters are keyed by id,
+   so a language change re-labels the strip without losing the split. */
+const AGENT_IDS = {
+  plan: "planner", code: "coder", error_fix: "errorfix",
   judge: "judge", refine: "refiner",
 };
+const AGENT_ORDER = ["planner", "coder", "errorfix", "judge", "refiner"];
+const agentLabel = id => I18N.has("agent." + id) ? t("agent." + id) : id;
 
 function resetUsage() {
   S.usage = { seen: { input: 0, output: 0, calls: 0 }, byAgent: {} };
@@ -201,7 +226,7 @@ function noteUsage(phase, tokens) {
   };
   S.usage.seen = { input, output, calls };
 
-  const name = AGENT_NAMES[phase] || phase;
+  const name = AGENT_IDS[phase] || phase;
   const entry = S.usage.byAgent[name] || { input: 0, output: 0, calls: 0 };
   entry.input += step.input;
   entry.output += step.output;
@@ -223,22 +248,19 @@ function renderUsage() {
     // the difference between the two paths made visible.
     if (S.catalog) {
       strip.hidden = false;
-      strip.innerHTML =
-        `<span class="unone">No model call — this part came from the `
-        + `catalogue, so it cost no tokens.</span>`;
+      strip.innerHTML = `<span class="unone">${esc(t("usage.free"))}</span>`;
     } else {
       strip.hidden = true;
     }
     return;
   }
 
-  const order = ["planner", "coder", "error refiner", "judge", "refiner"];
-  const parts = order
+  const parts = AGENT_ORDER
     .filter(name => byAgent[name] && (byAgent[name].input + byAgent[name].output))
     .map(name => {
       const a = byAgent[name];
       return `<span class="uagent"><b>${compact(a.input + a.output)}</b>`
-           + `<span>${name}${a.calls > 1 ? ` ×${a.calls}` : ""}</span></span>`;
+           + `<span>${esc(agentLabel(name))}${a.calls > 1 ? ` ×${a.calls}` : ""}</span></span>`;
     });
 
   // On a metered backend the useful number is not just what this run spent
@@ -248,23 +270,28 @@ function renderUsage() {
   const share = cap ? total / cap : 0;
   const budgetNote = share > 0.25
     ? `<span class="ubudget${share > 0.8 ? " near" : ""}">`
-      + `${Math.round(share * 100)}% of the ${compact(cap)} budget</span>`
+      + `${esc(t("usage.budget", { pct: Math.round(share * 100),
+                                  cap: compact(cap) }))}</span>`
     : "";
   const costNote = S.spend && S.spend.estimated_cost !== undefined
     ? `<span class="ucost">≈ $${S.spend.estimated_cost.toFixed(4)}</span>` : "";
 
   strip.hidden = false;
   strip.innerHTML =
-    `<span class="utot"><b>${total.toLocaleString()}</b> tokens · `
-    + `${seen.input.toLocaleString()} in · ${seen.output.toLocaleString()} out · `
-    + `${seen.calls} call${seen.calls === 1 ? "" : "s"}</span>`
+    `<span class="utot">${esc(t("usage.total", {
+        total: total.toLocaleString(),
+        in: seen.input.toLocaleString(),
+        out: seen.output.toLocaleString(),
+        calls: I18N.plural("usage.calls", "usage.calls.pl", seen.calls),
+      }))}</span>`
     + costNote + budgetNote + parts.join("");
 }
 
 /* ═══════════════════════ pipeline progress ═══════════════════════ */
 
 function renderStages(activeKey, detail) {
-  const activeIndex = STAGES.findIndex(s => s.key === activeKey);
+  S.stage = { key: activeKey, detail: detail || "" };
+  const activeIndex = STAGES.indexOf(activeKey);
   $("#pipe").innerHTML = STAGES.map((stage, i) => {
     const state = i < activeIndex ? "done" : (i === activeIndex ? "act" : "");
     return `
@@ -273,7 +300,7 @@ function renderStages(activeKey, detail) {
           <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg><i class="pspin"></i>
         </div>
         <div>
-          <div class="plabel">${stage.label}</div>
+          <div class="plabel">${esc(t("stage." + stage))}</div>
           ${i === activeIndex && detail
             ? `<div class="pdetail">${esc(detail)}</div>` : ""}
         </div>
@@ -321,22 +348,24 @@ function handleEvent(event) {
     appendLog(message);
     if (data && data.part_id) {
       S.catalog = data;
-      renderStages("done", `${data.title} — from the catalogue`);
+      renderStages("done", t("detail.fromcatalog", { title: data.title }));
       renderUsage();
       renderPlan(null);
       // No judge ran, so naming one in the Validation header would credit a
       // model that was never called.
       const backend = String(data.backend || "").toUpperCase();
-      $("#judgeModelLabel").textContent = `CATALOGUE · ${backend}`;
-      $("#genModelLabel").textContent = `CATALOGUE · ${backend}`;
+      const label = t("label.catalog", { backend: backend });
+      $("#judgeModelLabel").textContent = label;
+      $("#genModelLabel").textContent = label;
     }
     return;
   }
 
   if (phase === "ground") {
-    appendLog(`Standard dimensions: ${message}`);
+    appendLog(t("log.grounding", { message: message }));
     if (data && data.subjects && data.subjects.length) {
-      renderStages("plan", `Grounded in ${data.subjects.join(", ")}`);
+      renderStages("plan",
+                   t("detail.grounded", { subjects: data.subjects.join(", ") }));
     }
     return;
   }
@@ -344,15 +373,15 @@ function handleEvent(event) {
   const stage = PHASE_STAGE[phase];
   if (stage) {
     let detail = "";
-    if (phase === "plan" && status === "started") detail = "Decomposing the request";
-    if (phase === "code" && status === "started") detail = "Retrieving CadQuery API docs";
-    if (phase === "code" && status === "ok") detail = `${data.lines} lines written`;
-    if (phase === "execute" && status === "started") detail = "Running in the OCCT kernel";
-    if (phase === "execute" && status === "failed") detail = "Execution failed — repairing";
-    if (phase === "error_fix" && status === "started") detail = "Error Refiner is fixing the script";
-    if (phase === "render" && status === "ok") detail = "Rendering three views";
-    if (phase === "judge" && status === "started") detail = "Opus is inspecting the part";
-    if (phase === "refine" && status === "started") detail = "Refiner is correcting the geometry";
+    if (phase === "plan" && status === "started") detail = t("detail.decompose");
+    if (phase === "code" && status === "started") detail = t("detail.apidocs");
+    if (phase === "code" && status === "ok") detail = t("detail.lines", { n: data.lines });
+    if (phase === "execute" && status === "started") detail = t("detail.kernel");
+    if (phase === "execute" && status === "failed") detail = t("detail.execfail");
+    if (phase === "error_fix" && status === "started") detail = t("detail.errorfix");
+    if (phase === "render" && status === "ok") detail = t("detail.render");
+    if (phase === "judge" && status === "started") detail = t("detail.judging");
+    if (phase === "refine" && status === "started") detail = t("detail.refining");
     renderStages(stage, detail);
   }
 
@@ -399,9 +428,9 @@ function renderIterations() {
   if (!S.versions.length) { $("#iters").innerHTML = ""; return; }
   const cards = S.versions.map((v, i) => {
     const kind = v.source === "edit" ? "edit" : (v.passed ? "pass" : "fail");
-    const label = v.source === "edit" ? `EDIT ${v.iteration}`
-      : v.source === "catalog" ? "CATALOG"
-      : `ITER ${v.iteration}`;
+    const label = v.source === "edit" ? t("iter.edit", { n: v.iteration })
+      : v.source === "catalog" ? t("iter.catalog")
+      : t("iter.iteration", { n: v.iteration });
     const thumb = v.has_render
       ? `<img src="${API.artifact(S.jobId, v.iteration, "render.png")}" alt="" />`
       : "";
@@ -411,7 +440,8 @@ function renderIterations() {
       </div>`;
   }).join("");
   const hint = S.versions.length > 1
-    ? `<span class="ihint">← ${S.versions.length} attempts · click to compare</span>` : "";
+    ? `<span class="ihint">${esc(t("iter.compare", { n: S.versions.length }))}</span>`
+    : "";
   $("#iters").innerHTML = cards + hint;
   $$("#iters .iter").forEach(card => {
     card.onclick = () => selectVersion(+card.dataset.i);
@@ -462,10 +492,8 @@ function renderPlan(plan) {
   // A catalogue part has no design plan because no Planner ran. Saying so is
   // better than leaving "Planning…" on screen for a finished part.
   if (!plan && S.catalog) {
-    $("#planBody").innerHTML =
-      `<div class="await">No design plan — ${esc(S.catalog.title)} is `
-      + `defined by ${esc(S.catalog.standard)}, so nothing had to be `
-      + `worked out.</div>`;
+    $("#planBody").innerHTML = `<div class="await">${esc(t("plan.catalog", {
+      title: S.catalog.title, standard: S.catalog.standard }))}</div>`;
     return;
   }
   if (!plan) return;
@@ -489,10 +517,12 @@ function renderPlan(plan) {
     ${(plan.components || []).length ? `<div class="plan-tags">${
       plan.components.map(c => `<span class="tag">${esc(c)}</span>`).join("")
     }</div>` : ""}
-    ${rows ? `<div class="eyebrow" style="margin-bottom:6px">TARGET DIMENSIONS</div>${rows}` : ""}
-    ${bbox.xlen ? `<div class="dim"><span>overall bbox</span><b>${
+    ${rows ? `<div class="eyebrow" style="margin-bottom:6px">${
+      esc(t("plan.dimensions"))}</div>${rows}` : ""}
+    ${bbox.xlen ? `<div class="dim"><span>${esc(t("plan.bbox"))}</span><b>${
       fmt(bbox.xlen)} × ${fmt(bbox.ylen)} × ${fmt(bbox.zlen)}<u>mm</u></b></div>` : ""}
-    ${constraintTags ? `<div class="eyebrow" style="margin:12px 0 6px">CONSTRAINTS</div>
+    ${constraintTags ? `<div class="eyebrow" style="margin:12px 0 6px">${
+      esc(t("plan.constraints"))}</div>
       <div class="plan-tags">${constraintTags}</div>` : ""}`;
 }
 
@@ -505,23 +535,35 @@ function renderKernelFacts(version) {
   const failedSpec = version.spec && version.spec.ok === false
     ? (version.spec.checks || []).find(c => !c.passed && c.hard) : null;
   $("#mtitle").textContent =
-    version.source === "edit" ? "Model updated"
-    : version.source === "catalog" ? "Standard part"
-    : failedSpec ? `Measured wrong: ${failedSpec.label} `
-        + `${failedSpec.actual}, wanted ${failedSpec.expected}`
-    : (version.passed ? "Validated" : "Attempt not yet validated");
+    version.source === "edit" ? t("facts.updated")
+    : version.source === "catalog" ? t("facts.standard")
+    : failedSpec ? t("facts.wrong", { label: specLabel(failedSpec),
+                                      actual: failedSpec.actual,
+                                      expected: failedSpec.expected })
+    : t(version.passed ? "facts.validated" : "facts.unvalidated");
   $("#mfacts").innerHTML = [
-    ["bbox mm", `${fmt(bbox.xlen)}×${fmt(bbox.ylen)}×${fmt(bbox.zlen)}`],
-    ["volume mm³", fmt(Math.round(geometry.volume || 0))],
-    ["faces", geometry.num_faces],
-    ["edges", geometry.num_edges],
-    ["solid", geometry.is_valid ? "WATERTIGHT" : "INVALID"],
+    [t("facts.bbox"), `${fmt(bbox.xlen)}×${fmt(bbox.ylen)}×${fmt(bbox.zlen)}`],
+    [t("facts.volume"), fmt(Math.round(geometry.volume || 0))],
+    [t("facts.faces"), geometry.num_faces],
+    [t("facts.edges"), geometry.num_edges],
+    [t("facts.solid"), t(geometry.is_valid ? "facts.watertight" : "facts.invalid")],
   ].map(([label, value]) =>
-    `<div class="fact"><b>${esc(String(value ?? "—"))}</b><span>${label}</span></div>`
+    `<div class="fact"><b>${esc(String(value ?? "—"))}</b><span>${esc(label)}</span></div>`
   ).join("");
 
   const icon = $("#mIcon");
   if (icon) icon.style.color = version.passed ? "var(--valid)" : "var(--warn)";
+}
+
+/* A measured check names itself by a stable key, so its label is looked up
+   here rather than taken from the server's English. The server text is the
+   fallback: a check this build has never seen still reads as something. */
+function specLabel(check) {
+  const advisory = check.hard === false;
+  const key = "spec." + check.key + (advisory ? ".advisory" : "");
+  if (I18N.has(key)) return t(key);
+  if (I18N.has("spec." + check.key)) return t("spec." + check.key);
+  return check.label;
 }
 
 function specRows(spec) {
@@ -533,12 +575,12 @@ function specRows(spec) {
     const mark = c.passed ? "&#10003;" : (c.hard ? "&#10007;" : "&#8210;");
     return `<div class="specrow ${state}">
       <span class="specmark">${mark}</span>
-      <span class="speclabel">${esc(c.label)}</span>
+      <span class="speclabel">${esc(specLabel(c))}</span>
       <span class="specval">${esc(c.actual)}</span>
-      <span class="specwant">wanted ${esc(c.expected)}</span>
+      <span class="specwant">${esc(t("spec.wanted", { expected: c.expected }))}</span>
     </div>`;
   }).join("");
-  return `<div class="eyebrow" style="margin:14px 0 6px">MEASURED BY THE KERNEL</div>
+  return `<div class="eyebrow" style="margin:14px 0 6px">${esc(t("spec.heading"))}</div>
     <div class="specgrid">${rows}</div>`;
 }
 
@@ -564,43 +606,36 @@ function renderValidation(version) {
       // rejection the kernel can prove would also contradict the status
       // bar above, which names the measurement that failed.
       const failed = (spec.checks || []).filter(c => !c.passed && c.hard);
-      const named = failed.map(c => `${c.label} measured ${c.actual}, `
-        + `wanted ${c.expected}`).join("; ");
-      heading = "Refused on measurement";
-      body = (version.judge_passed
-        ? "The Judge accepted this, but the kernel disagrees: "
-        : "The kernel measured this part against the plan: ") + named + ". "
-        + "A measurement settles a dimension; an opinion about one does not."
+      const named = failed.map(c => t("val.refused.item", {
+        label: specLabel(c), actual: c.actual, expected: c.expected })).join("; ");
+      heading = t("val.refused");
+      body = t(version.judge_passed ? "val.refused.judgepassed"
+                                    : "val.refused.measured")
+        + named + t("val.refused.tail")
         + (version.judge_passed || !version.judge_feedback ? ""
-           : ` The Judge also rejected it: ${version.judge_feedback}`);
+           : t("val.refused.judgetoo", { feedback: version.judge_feedback }));
     } else {
-      heading = passed ? "Accepted by the Judge" : "Rejected by the Judge";
+      heading = t(passed ? "val.accepted" : "val.rejected");
       body = version.judge_feedback || version.feedback_text || "";
     }
-    const judgeModel = (S.judgeModel || "").toUpperCase() || "JUDGE MODEL";
-    attribution = judgeModel + " · " + (version.has_render
-      ? "KERNEL METRICS + THREE-VIEW RENDER" : "KERNEL METRICS ONLY");
+    const judgeModel = (S.judgeModel || "").toUpperCase() || t("val.src.judge");
+    attribution = judgeModel + " · "
+      + t(version.has_render ? "val.src.render" : "val.src.metrics");
   } else if (version.source === "catalog") {
     // No agent produced this, so there is nothing for a Judge to have
     // accepted. Say where it came from instead of implying a verdict.
     const cat = version.catalog || {};
-    heading = "Standard part, served from the catalogue";
-    body = `${cat.title || "This part"} is defined by ${cat.standard
-      || "its standard"}, so its dimensions are exact rather than estimated. `
-      + "No model wrote it and no Judge assessed it. OpenCASCADE built it and "
-      + "reports a valid watertight solid, and the source is parametric — "
-      + "edit it like any other part.";
-    attribution = "CATALOGUE · " + String(cat.backend || "cadsmith").toUpperCase()
-      + " · NO MODEL CALL";
+    heading = t("val.catalog.heading");
+    body = t("val.catalog.body", {
+      title: cat.title || t("val.catalog.thispart"),
+      standard: cat.standard || t("val.catalog.itsstandard") });
+    attribution = t("val.src.catalog", {
+      backend: String(cat.backend || "cadsmith").toUpperCase() });
   } else {
-    heading = passed ? "Rebuilt and checked by the kernel"
-                     : "The kernel rejected this solid";
-    body = passed
-      ? "OpenCASCADE rebuilt the solid and reports it valid and watertight. "
-        + "The vision Judge was not re-run: a parameter patch changes a value "
-        + "the script already declares, not the design."
-      : (version.feedback_text || "The rebuilt solid failed the kernel's checks.");
-    attribution = "OCCT KERNEL · JUDGE NOT RE-RUN";
+    heading = t(passed ? "val.rebuilt" : "val.rebuilt.failed");
+    body = passed ? t("val.rebuilt.body")
+                  : (version.feedback_text || t("val.rebuilt.body.failed"));
+    attribution = t("val.src.kernel");
   }
 
   $("#valBody").innerHTML = `
@@ -617,9 +652,9 @@ function renderValidation(version) {
     </div>
     ${specRows(spec)}
     ${renderUrl ? `
-      <div class="eyebrow" style="margin-bottom:6px">WHAT THE JUDGE SAW</div>
-      <img class="rthumb" id="rthumb" src="${renderUrl}" alt="Three-view render" />
-      <div class="rcap">ISOMETRIC · HIGH-ANGLE REAR · FRONT PROFILE</div>` : ""}`;
+      <div class="eyebrow" style="margin-bottom:6px">${esc(t("val.sawheading"))}</div>
+      <img class="rthumb" id="rthumb" src="${renderUrl}" alt="${esc(t("val.renderalt"))}" />
+      <div class="rcap">${esc(t("val.sawcaption"))}</div>` : ""}`;
 
   const thumb = $("#rthumb");
   if (thumb) {
@@ -634,7 +669,7 @@ function renderValidation(version) {
 
 async function generate() {
   const prompt = $("#prompt").value.trim();
-  if (!prompt) { warnToast("Describe the part first."); return; }
+  if (!prompt) { warnToast(t("run.needprompt")); return; }
   if (S.busy) return;
 
   S.busy = true;
@@ -656,14 +691,15 @@ async function generate() {
   // clear it now rather than leaving the previous part's plan and verdict on
   // screen until the new ones arrive.
   $("#planBody").innerHTML =
-    `<div class="await">Planning…</div>`;
-  $("#valBody").innerHTML = `<div class="await">Waiting for the first attempt…</div>`;
+    `<div class="await" data-i18n="plan.planning">${esc(t("plan.planning"))}</div>`;
+  $("#valBody").innerHTML =
+    `<div class="await" data-i18n="val.waiting">${esc(t("val.waiting"))}</div>`;
   sheetSvg = null;
   $("#drawBtn").disabled = true;
   $("#cmdIn").disabled = true;
   $("#applyBtn").disabled = true;
   showOverlay("pipe");
-  renderStages("plan", "Sending the request");
+  renderStages("plan", t("detail.sending"));
 
   const options = {
     max_iterations: +$("#optIters").value,
@@ -715,7 +751,7 @@ function follow(jobId, fromSeq) {
     onError: () => {
       S.busy = false;
       $("#genBtn").disabled = false;
-      warnToast("Lost the connection to the run.");
+      warnToast(t("run.lostconn"));
     },
   });
 }
@@ -727,26 +763,30 @@ function finishRun(data) {
   $("#genBtn").disabled = !(S.health && S.health.can_generate);
 
   if (!S.versions.length) {
-    failRun("The pipeline produced no usable geometry.");
+    failRun(t("run.nogeometry"));
     return;
   }
 
   selectVersion(S.versions.length - 1);
   const cost = data.tokens
-    ? ` · ${(data.tokens.input_tokens + data.tokens.output_tokens).toLocaleString()} tokens`
+    ? t("run.tokens", { n: (data.tokens.input_tokens
+                            + data.tokens.output_tokens).toLocaleString() })
     : "";
-  const seconds = data.total_ms ? ` in ${(data.total_ms / 1000).toFixed(1)}s` : "";
+  const seconds = data.total_ms
+    ? t("run.seconds", { s: (data.total_ms / 1000).toFixed(1) }) : "";
 
   if (S.catalog || data.source === "catalog") {
     // Nothing iterated and nothing was spent, so the pipeline's wording
     // does not apply - it rendered as "Converged after undefined iterations".
-    toast(`${S.catalog ? S.catalog.title : "Standard part"} — from the `
-          + `catalogue${seconds}, no model call`);
+    toast(t("run.catalogdone", {
+      title: S.catalog ? S.catalog.title : t("run.standardpart"),
+      seconds: seconds }));
   } else if (S.converged) {
-    toast(`Converged after ${data.iterations} iteration${
-      data.iterations === 1 ? "" : "s"}${seconds}${cost}`);
+    toast(t("run.converged", {
+      n: data.iterations, s: data.iterations === 1 ? "" : "s",
+      seconds: seconds, cost: cost }));
   } else {
-    warnToast(`Stopped after ${data.iterations} iterations without the Judge accepting it — showing the closest attempt.`);
+    warnToast(t("run.notconverged", { n: data.iterations }));
   }
   loadHistory();
 }
@@ -755,11 +795,10 @@ function failRun(message) {
   S.busy = false;
   forgetRun();
   $("#genBtn").disabled = !(S.health && S.health.can_generate);
-  $("#errTitle").textContent = "The run could not complete";
-  $("#errMsg").textContent = message || "Unknown error.";
-  $("#errFix").textContent = S.versions.length
-    ? "An earlier attempt is still available below."
-    : "Check the environment panel in the header, then try again.";
+  $("#errTitle").textContent = t("err.title");
+  $("#errMsg").textContent = message || t("err.unknown");
+  $("#errFix").textContent =
+    t(S.versions.length ? "err.haveattempt" : "err.checkenv");
   $("#errKeep").hidden = !S.versions.length;
   showOverlay("error");
 }
@@ -774,15 +813,15 @@ async function loadHistory() {
     const when = job.created_at
       ? new Date(job.created_at * 1000).toLocaleString() : "";
     const badge = job.status === "error"
-      ? `<span class="hbadge fail">FAILED</span>`
-      : job.converged ? `<span class="hbadge pass">CONVERGED</span>`
-      : `<span class="hbadge fail">NOT CONVERGED</span>`;
+      ? `<span class="hbadge fail">${esc(t("hist.failed"))}</span>`
+      : job.converged ? `<span class="hbadge pass">${esc(t("hist.converged"))}</span>`
+      : `<span class="hbadge fail">${esc(t("hist.notconverged"))}</span>`;
     // Provenance is stated, never implied: a replay is a recording, and a
     // fixture had its agent replies scripted rather than generated.
     const origin =
-      job.source === "replay" ? `<span class="hbadge replay">REPLAY</span>`
-      : job.source === "catalog" ? `<span class="hbadge fixture">CATALOG</span>`
-      : job.source === "fixture" ? `<span class="hbadge fixture">FIXTURE</span>`
+      job.source === "replay" ? `<span class="hbadge replay">${esc(t("hist.replay"))}</span>`
+      : job.source === "catalog" ? `<span class="hbadge fixture">${esc(t("hist.catalog"))}</span>`
+      : job.source === "fixture" ? `<span class="hbadge fixture">${esc(t("hist.fixture"))}</span>`
       : "";
     return `
       <div class="hrow">
@@ -790,15 +829,15 @@ async function loadHistory() {
           <div class="hnote">${esc(job.prompt.slice(0, 88))}${job.prompt.length > 88 ? "…" : ""}</div>
           <div class="hmeta">
             ${badge}${origin}
-            <span class="hbadge">${job.versions.length} VER</span>
+            <span class="hbadge">${esc(t("hist.versions", { n: job.versions.length }))}</span>
             <span class="htime">${esc(when)}</span>
           </div>
         </button>
-        <button class="hreplay" data-replay="${esc(job.id)}" title="Replay this run">
+        <button class="hreplay" data-replay="${esc(job.id)}" title="${esc(t("hist.replaytip"))}">
           <svg viewBox="0 0 24 24"><path d="M6 4l13 8-13 8z"/></svg>
         </button>
       </div>`;
-  }).join("") : `<div class="await" style="padding:14px">No runs yet.</div>`;
+  }).join("") : `<div class="await" style="padding:14px">${esc(t("hist.empty"))}</div>`;
 
   $$("#hlist .hitem").forEach(item => {
     item.onclick = () => openJob(item.dataset.job);
@@ -816,8 +855,7 @@ async function openJob(jobId) {
   const job = state.job;
   S.replay = job.source === "replay";
   if (S.replay) {
-    $("#enginePill").textContent = "REPLAY · recorded run";
-    $("#enginePill").classList.add("replaying");
+    setReplayPill();
   } else {
     resetPill();
   }
@@ -855,11 +893,12 @@ async function openJob(jobId) {
 
   if (S.versions.length) {
     await selectVersion(S.versions.length - 1);
-    toast(job.converged ? "Loaded a converged run" : "Loaded an unconverged run");
+    toast(t(job.converged ? "hist.loaded.converged"
+                          : "hist.loaded.unconverged"));
   } else {
     showOverlay("error");
-    $("#errTitle").textContent = "That run produced no geometry";
-    $("#errMsg").textContent = job.error || "The pipeline stopped before exporting a solid.";
+    $("#errTitle").textContent = t("hist.nogeometry");
+    $("#errMsg").textContent = job.error || t("hist.stoppedearly");
     $("#errFix").textContent = "";
   }
 }
@@ -915,12 +954,12 @@ $("#copyBtn").onclick = async () => {
   if (!version) return;
   const response = await fetch(API.artifact(S.jobId, version.iteration, "code.py"));
   await navigator.clipboard.writeText(await response.text());
-  toast("CadQuery source copied");
+  toast(t("code.copied"));
 };
 
 function download(name) {
   const version = S.versions[S.selected];
-  if (!version) { warnToast("Generate a part first."); return; }
+  if (!version) { warnToast(t("draw.needpart")); return; }
   const link = document.createElement("a");
   link.href = API.artifact(S.jobId, version.iteration, name);
   link.download = "";
@@ -975,11 +1014,8 @@ async function loadProviders() {
   try { payload = await API.providers(true); } catch (_) { return; }
 
   S.providers = payload.providers || [];
+  renderProviderOptions();
   const select = $("#optProvider");
-  select.innerHTML = S.providers.map(p => {
-    const state = p.ready ? "" : " — needs setup";
-    return `<option value="${esc(p.id)}">${esc(p.label)}${state}</option>`;
-  }).join("");
 
   const preferred = S.providers.find(p => p.id === payload.default && p.ready)
     || S.providers.find(p => p.ready)
@@ -988,6 +1024,15 @@ async function loadProviders() {
     select.value = preferred.id;
     applyProvider(preferred.id);
   }
+}
+
+function renderProviderOptions() {
+  const select = $("#optProvider");
+  const chosen = select.value;
+  select.innerHTML = S.providers.map(p =>
+    `<option value="${esc(p.id)}">${esc(p.label)}${
+      p.ready ? "" : esc(t("prov.needssetup"))}</option>`).join("");
+  if (chosen) select.value = chosen;
 }
 
 function currentProvider() {
@@ -1011,7 +1056,7 @@ function applyProvider(providerId) {
   $("#optJudgeModel").value = provider.default_judge_model
     || provider.default_generation_model || "";
   $("#optGenModel").placeholder = models.length
-    ? `model id (${models.length} available)` : "model id";
+    ? t("ph.modelid.count", { n: models.length }) : t("ph.modelid");
   $("#optJudgeModel").placeholder = $("#optGenModel").placeholder;
 
   const needsSetup = !provider.ready;
@@ -1031,8 +1076,8 @@ function applyProvider(providerId) {
     $("#awsRegion").value = provider.aws_region || "";
     $("#awsProfile").value = provider.aws_profile || "";
   }
-  $("#providerKey").placeholder = provider.needs_key
-    ? "API key (memory only)" : "API key (not required)";
+  $("#providerKey").placeholder =
+    t(provider.needs_key ? "ph.apikey.memory" : "ph.apikey.none");
 
   setModelLabels($("#optGenModel").value, $("#optJudgeModel").value);
   updateProviderNote();
@@ -1044,8 +1089,46 @@ function applyProvider(providerId) {
 function setModelLabels(generation, judge) {
   S.judgeModel = judge || "";
   const short = name => (name || "").split("/").pop().toUpperCase() || "—";
-  $("#genModelLabel").textContent = `PLANNER · ${short(generation)}`;
-  $("#judgeModelLabel").textContent = `JUDGE · ${short(judge)}`;
+  $("#genModelLabel").textContent =
+    t("label.planner.model", { model: short(generation) });
+  $("#judgeModelLabel").textContent =
+    t("label.judge.model", { model: short(judge) });
+}
+
+/* The provider block's text, without touching its values. applyProvider()
+   would do this too, but it also resets the model fields to the provider's
+   defaults - which on a language change would silently discard a model id
+   someone had typed. */
+function refreshProviderText() {
+  const provider = S.provider;
+  if (!provider) return;
+  const models = provider.models || [];
+  $("#optGenModel").placeholder = models.length
+    ? t("ph.modelid.count", { n: models.length }) : t("ph.modelid");
+  $("#optJudgeModel").placeholder = $("#optGenModel").placeholder;
+  $("#providerKey").placeholder =
+    t(provider.needs_key ? "ph.apikey.memory" : "ph.apikey.none");
+  updateProviderNote();
+}
+
+/* What a provider that is not ready needs, in the interface's language.
+   The server sends the sentence in English and a key beside it; a key this
+   build does not know falls back to the sentence, so a provider added later
+   still explains itself. */
+function providerHint(provider) {
+  const key = provider.hint_key;
+  const params = provider.hint_params || {};
+  if (key && I18N.has(key)) {
+    const text = t(key, params);
+    // The unreachable case is a prefix - the local server's own instruction
+    // still has to follow it.
+    if (key === "prov.hint.unreachable") {
+      const own = "prov.hint." + (params.id || "");
+      return text + (I18N.has(own) ? " " + t(own) : " " + provider.hint);
+    }
+    return text;
+  }
+  return provider.hint + ".";
 }
 
 function updateProviderNote() {
@@ -1058,20 +1141,18 @@ function updateProviderNote() {
 
   if (!provider.ready) {
     note.className = "optnote warn";
-    note.textContent = provider.hint + ".";
+    note.textContent = providerHint(provider);
     return;
   }
   if (!generation || !judge) {
     note.className = "optnote warn";
-    note.textContent = "Choose a model for both roles.";
+    note.textContent = t("prov.bothroles");
     return;
   }
   if (generation === judge) {
     // The pipeline judges with a separate, stronger model on purpose.
     note.className = "optnote warn";
-    note.textContent =
-      "Both roles use the same model, so the Judge grades its own work. "
-      + "Pick a stronger judge model for an independent check.";
+    note.textContent = t("prov.samemodel");
     return;
   }
   note.className = "optnote ok";
@@ -1079,16 +1160,16 @@ function updateProviderNote() {
     // Say where the credentials came from: on Bedrock "ready" can mean an
     // instance role, an SSO session or a profile, and which one it picked
     // is exactly what you need when the wrong account answers.
-    note.textContent =
-      `Ready — ${provider.aws_region}`
-      + (provider.aws_profile ? `, profile ${provider.aws_profile}` : "")
-      + (provider.aws_credentials
-         ? `, credentials from ${provider.aws_credentials}.` : ".");
+    note.textContent = t("prov.bedrock", {
+      region: provider.aws_region,
+      profile: provider.aws_profile
+        ? t("prov.bedrock.profile", { profile: provider.aws_profile }) : "",
+      credentials: provider.aws_credentials
+        ? t("prov.bedrock.creds", { source: provider.aws_credentials }) : ".",
+    });
     return;
   }
-  note.textContent = provider.local
-    ? "Running locally — nothing leaves this machine."
-    : "Ready.";
+  note.textContent = t(provider.local ? "prov.local" : "prov.ready");
 }
 
 function updateGenerateAvailability() {
@@ -1123,13 +1204,10 @@ async function saveProviderKey() {
     $("#providerKey").value = "";
     applyProvider(provider.id);
 
-    const select = $("#optProvider");
-    const option = [...select.options].find(o => o.value === provider.id);
-    if (option) option.textContent =
-      provider.label + (provider.ready ? "" : " — needs setup");
+    renderProviderOptions();
 
-    toast(provider.ready ? `${provider.label} is ready`
-                         : `${provider.label} still needs setup`);
+    toast(t(provider.ready ? "prov.isready" : "prov.stillneeds",
+            { label: provider.label }));
     loadHealth();
   } catch (error) {
     warnToast(error.message);
@@ -1157,7 +1235,7 @@ $("#providerKey").addEventListener("keydown", e => {
    that run exported. Nothing is simulated; only the pacing differs, so a
    demo does not depend on the network or on a part converging this time. */
 async function startReplay(sourceJobId) {
-  if (S.busy) { warnToast("Something is already running."); return; }
+  if (S.busy) { warnToast(t("run.busy")); return; }
 
   S.busy = true;
   S.replay = true;
@@ -1171,9 +1249,8 @@ async function startReplay(sourceJobId) {
   Viewer.clear();
   setCode("");
   showOverlay("pipe");
-  renderStages("plan", "Replaying a recorded run");
-  $("#enginePill").textContent = "REPLAY · recorded run";
-  $("#enginePill").classList.add("replaying");
+  renderStages("plan", t("detail.replaying"));
+  setReplayPill();
 
   try {
     const job = await API.replay(sourceJobId, 6);
@@ -1187,9 +1264,18 @@ async function startReplay(sourceJobId) {
   }
 }
 
+function setReplayPill() {
+  const pill = $("#enginePill");
+  pill.textContent = t("hist.replaypill");
+  pill.setAttribute("data-i18n", "hist.replaypill");
+  pill.classList.add("replaying");
+}
+
 function resetPill() {
-  $("#enginePill").textContent = "Planner · Coder · Executor · Validator · Refiner";
-  $("#enginePill").classList.remove("replaying");
+  const pill = $("#enginePill");
+  pill.textContent = t("app.engine");
+  pill.setAttribute("data-i18n", "app.engine");
+  pill.classList.remove("replaying");
 }
 
 /* ═══════════════════════ natural-language edits ═══════════════════════ */
@@ -1197,21 +1283,15 @@ function resetPill() {
 /* The steps mirror what actually happens. A parameter patch skips the Judge:
    it changes a number the script already declares, so the kernel alone can
    confirm it. The Refiner writes new code, so the full check is worth it. */
-const EDIT_STEPS = [
-  { key: "read",     label: "Reading the request" },
-  { key: "apply",    label: "Applying the change" },
-  { key: "rebuild",  label: "Rebuilding in the kernel" },
-  { key: "validate", label: "Validating" },
-  { key: "done",     label: "Updated" },
-];
+const EDIT_STEPS = ["read", "apply", "rebuild", "validate", "done"];
 
 function renderEditSteps(activeKey, skipValidate) {
   const steps = skipValidate
-    ? EDIT_STEPS.filter(s => s.key !== "validate") : EDIT_STEPS;
-  const activeIndex = steps.findIndex(s => s.key === activeKey);
+    ? EDIT_STEPS.filter(key => key !== "validate") : EDIT_STEPS;
+  const activeIndex = steps.indexOf(activeKey);
   $("#actSteps").innerHTML = steps.map((step, i) => {
     const state = i < activeIndex ? "done" : (i === activeIndex ? "act" : "");
-    return `<div class="ast ${state}"><i></i>${step.label}</div>`
+    return `<div class="ast ${state}"><i></i>${esc(t("edit.step." + step))}</div>`
       + (i < steps.length - 1 ? `<span class="arrow">→</span>` : "");
   }).join("");
 }
@@ -1229,7 +1309,7 @@ function handleEditEvent(event) {
            <span class="strike">${fmt(c.old)}</span>${fmt(c.new)}</span>`).join("");
     } else {
       $("#actDiff").innerHTML =
-        `<span class="diffpill">REFINER AGENT</span>`;
+        `<span class="diffpill">${esc(t("edit.refineragent"))}</span>`;
     }
     return;
   }
@@ -1268,20 +1348,20 @@ function finishEdit(ok, data, message) {
   $("#cmdIn").disabled = false;
 
   if (!ok) {
-    warnToast(message || "The edit could not be applied.");
+    warnToast(message || t("edit.failed"));
     return;
   }
   $("#cmdIn").value = "";
-  const method = data.method === "parameter patch"
-    ? "parameter patch, rebuilt by the kernel"
-    : "Refiner agent";
-  const seconds = data.total_ms ? ` in ${(data.total_ms / 1000).toFixed(1)}s` : "";
-  toast(`Model updated · ${method}${seconds}`);
+  const method = t(data.method === "parameter patch"
+                   ? "edit.method.patch" : "edit.method.agent");
+  const seconds = data.total_ms
+    ? t("run.seconds", { s: (data.total_ms / 1000).toFixed(1) }) : "";
+  toast(t("edit.done", { method: method, seconds: seconds }));
 }
 
 async function applyEdit() {
   const instruction = $("#cmdIn").value.trim();
-  if (!instruction) { warnToast("Describe the change first."); return; }
+  if (!instruction) { warnToast(t("edit.needinstruction")); return; }
   if (S.busy || !S.jobId || !S.versions.length) return;
 
   S.busy = true;
@@ -1315,11 +1395,11 @@ let sheetSvg = null;
 
 async function openDrawing() {
   const version = S.versions[S.selected];
-  if (!version) { warnToast("Generate a part first."); return; }
+  if (!version) { warnToast(t("draw.needpart")); return; }
 
   const button = $("#drawBtn");
   button.disabled = true;
-  $("#paper").innerHTML = `<div style="padding:60px;color:#666;font-family:monospace;font-size:12px">Projecting the solid…</div>`;
+  $("#paper").innerHTML = `<div style="padding:60px;color:#666;font-family:monospace;font-size:12px">${esc(t("draw.projecting"))}</div>`;
   $("#sheet").classList.add("on");
 
   try {
@@ -1336,7 +1416,7 @@ async function openDrawing() {
     sheetSvg = null;
     $("#paper").innerHTML =
       `<div style="padding:60px;color:#B00;font-family:monospace;font-size:12px;max-width:640px">`
-      + `Could not build the drawing.<br><br>${esc(error.message)}</div>`;
+      + `${esc(t("draw.failed"))}<br><br>${esc(error.message)}</div>`;
   } finally {
     button.disabled = false;
   }
@@ -1345,7 +1425,7 @@ async function openDrawing() {
 /* Rasterise the sheet in the browser. The SVG is self-contained - no external
    references - so it can be drawn straight onto a canvas. */
 function exportDrawingPng() {
-  if (!sheetSvg) { warnToast("Open a drawing first."); return; }
+  if (!sheetSvg) { warnToast(t("draw.needdrawing")); return; }
   const svg = $("#paper").querySelector("svg");
   const width = +svg.getAttribute("width") || 1120;
   const height = +svg.getAttribute("height") || 780;
@@ -1371,12 +1451,12 @@ function exportDrawingPng() {
       link.download = `${S.jobId}_drawing.png`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      toast("Drawing exported as PNG");
+      toast(t("draw.exported"));
     }, "image/png");
   };
   image.onerror = () => {
     URL.revokeObjectURL(url);
-    warnToast("Could not rasterise the drawing.");
+    warnToast(t("draw.rasterfail"));
   };
   image.src = url;
 }
@@ -1385,7 +1465,7 @@ $("#drawBtn").onclick = openDrawing;
 $("#back3d").onclick = () => $("#sheet").classList.remove("on");
 $("#expPng").onclick = exportDrawingPng;
 
-/* ═══════════════════════ boot ═══════════════════════ */
+/* ═══════════════════════ reattaching ═══════════════════════ */
 
 /* Reattach to a run that was still going when the page went away.
    The event log is append-only and replayable from a sequence number, so
@@ -1403,7 +1483,7 @@ async function resumeRun(jobId) {
     // stale progress overlay.
     forgetRun();
     await openJob(jobId);
-    toast("That run finished while the page was away");
+    toast(t("run.finishedaway"));
     return;
   }
 
@@ -1420,12 +1500,80 @@ async function resumeRun(jobId) {
   $("#applyBtn").disabled = true;
   $("#iters").innerHTML = "";
   showOverlay("pipe");
-  renderStages("plan", "Reattaching to a run already in progress");
+  renderStages("plan", t("detail.reattach"));
   follow(jobId, 0);
-  toast("Reattached to a run still in progress");
+  toast(t("run.reattached"));
 }
 
+/* ═══════════════════════ interface language ═══════════════════════ */
+
+/* Two buttons, each written in its own language, so someone who cannot read
+   the current interface can still find their way out of it. */
+function buildLangSwitch() {
+  const box = $("#langSw");
+  box.setAttribute("aria-label", t("app.language"));
+  box.innerHTML = I18N.LANGS.map(l =>
+    `<button class="lang${l.code === I18N.current ? " on" : ""}" `
+    + `data-lang="${esc(l.code)}" lang="${esc(l.code)}" `
+    + `aria-pressed="${l.code === I18N.current}">${esc(l.label)}</button>`
+  ).join("");
+  $$("#langSw .lang").forEach(button => {
+    button.onclick = () => I18N.set(button.dataset.lang);
+  });
+}
+
+/* Everything on screen that was written by JavaScript rather than by the
+   markup. I18N.apply() has already redrawn the static text by the time this
+   runs; these are the panels that hold state, and they are redrawn from that
+   state rather than from the DOM, so nothing is translated twice. */
+function relocalise() {
+  buildLangSwitch();
+
+  const chip = $("#healthChip").querySelector("span");
+  if (!S.health) chip.textContent = t("health.unreachable");
+  else chip.textContent = S.health.ok ? t("health.ready")
+    : S.health.can_generate ? t("health.degraded") : t("health.notready");
+  if (S.health && S.health.checks && !S.health.checks.model_backend.ok) {
+    const catalogue = S.health.checks.catalog && S.health.checks.catalog.ok;
+    $("#keyBannerText").textContent =
+      t(catalogue ? "banner.catalog" : "banner.nobackend");
+  }
+
+  renderExamples();
+  if (S.providers.length) {
+    renderProviderOptions();
+    refreshProviderText();
+  }
+  if (S.codeLines !== undefined) {
+    $("#codeStat").textContent = S.codeLines
+      ? t("code.stat", { n: S.codeLines }) : t("code.empty");
+  }
+  if (S.stage) renderStages(S.stage.key, S.stage.detail);
+  renderUsage();
+  renderIterations();
+
+  // A catalogue part names its source in both model labels, and applyProvider
+  // has just put the model ids back there. Restore what actually built it.
+  if (S.catalog) {
+    const label = t("label.catalog",
+                    { backend: String(S.catalog.backend || "").toUpperCase() });
+    $("#genModelLabel").textContent = label;
+    $("#judgeModelLabel").textContent = label;
+  }
+
+  if (S.designPlan || S.catalog) renderPlan(S.designPlan);
+  const version = S.versions[S.selected];
+  if (version) { renderKernelFacts(version); renderValidation(version); }
+  if ($("#hist").classList.contains("open")) loadHistory();
+}
+
+I18N.onChange(relocalise);
+
+/* ═══════════════════════ boot ═══════════════════════ */
+
 (async function boot() {
+  I18N.apply();
+  buildLangSwitch();
   await loadHealth();
   await loadProviders();
   await loadExamples();

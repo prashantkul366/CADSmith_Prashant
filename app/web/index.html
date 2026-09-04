@@ -17,16 +17,17 @@
     <svg class="logo" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
     <h1>CADSmith</h1>
   </div>
-  <div class="pill" id="enginePill">Planner · Coder · Executor · Validator · Refiner</div>
+  <div class="pill" id="enginePill" data-i18n="app.engine">Planner · Coder · Executor · Validator · Refiner</div>
   <div style="flex:1"></div>
-  <button class="health" id="healthChip"><i></i><span>CHECKING…</span></button>
+  <div class="langsw" id="langSw" role="group"></div>
+  <button class="health" id="healthChip"><i></i><span data-i18n="health.checking">CHECKING…</span></button>
   <button class="btn ghost sm" id="histBtn">
-    <svg class="icn" viewBox="0 0 24 24"><path d="M3 3v6h6M3.5 9a9 9 0 1 0 2.1-3.4L3 9"/></svg>History
+    <svg class="icn" viewBox="0 0 24 24"><path d="M3 3v6h6M3.5 9a9 9 0 1 0 2.1-3.4L3 9"/></svg><span data-i18n="app.history">History</span>
   </button>
 </header>
 
 <div class="diag" id="diag" hidden>
-  <h4>Environment</h4>
+  <h4 data-i18n="app.environment">Environment</h4>
   <div id="diagRows"></div>
 </div>
 
@@ -35,7 +36,7 @@
 
   <!-- ══════════ LEFT: input ══════════ -->
   <div class="col left">
-    <div class="phead"><h2>Design Input</h2></div>
+    <div class="phead"><h2 data-i18n="input.heading">Design Input</h2></div>
     <div class="pbody">
 
       <div class="banner" id="keyBanner" hidden>
@@ -44,60 +45,60 @@
       </div>
 
       <div class="field">
-        <span class="eyebrow">Describe part</span>
-        <textarea class="prompt" id="prompt" placeholder="Describe the part you want to generate…"></textarea>
+        <span class="eyebrow" data-i18n="input.describe">Describe part</span>
+        <textarea class="prompt" id="prompt" data-i18n-ph="input.placeholder" placeholder="Describe the part you want to generate…"></textarea>
       </div>
 
       <button class="btn primary" style="width:100%" id="genBtn">
         <svg class="icn" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.6"/></svg>
-        Generate CAD
+        <span data-i18n="input.generate">Generate CAD</span>
       </button>
 
       <div class="opts">
         <div class="opt">
-          <span>Refinement iterations</span>
+          <span data-i18n="opt.iterations">Refinement iterations</span>
           <span style="display:flex;align-items:center;gap:7px">
             <input type="range" id="optIters" min="0" max="5" step="1" value="3" />
             <output id="optItersOut">3</output>
           </span>
         </div>
         <div class="opt">
-          <span>Vision Judge</span>
+          <span data-i18n="opt.vision">Vision Judge</span>
           <span class="sw on" id="optVision" role="switch" aria-checked="true" tabindex="0"></span>
         </div>
         <div class="opt">
-          <span title="Give the Planner the published dimensions for any standard part the request names — thread sizes, bearings, NEMA frames. Off reproduces the pipeline as published.">Standard dimensions</span>
+          <span data-i18n="opt.grounding" data-i18n-title="opt.grounding.tip" title="Give the Planner the published dimensions for any standard part the request names — thread sizes, bearings, NEMA frames. Off reproduces the pipeline as published.">Standard dimensions</span>
           <span class="sw on" id="optGround" role="switch" aria-checked="true" tabindex="0"></span>
         </div>
       </div>
 
       <div class="opts" id="llmOpts">
         <div class="opt">
-          <span>Provider</span>
+          <span data-i18n="opt.provider">Provider</span>
           <select id="optProvider"></select>
         </div>
         <div class="opt">
-          <span>Generation model</span>
+          <span data-i18n="opt.genmodel">Generation model</span>
           <input id="optGenModel" list="genModels" placeholder="model id" />
           <datalist id="genModels"></datalist>
         </div>
         <div class="opt">
-          <span>Judge model</span>
+          <span data-i18n="opt.judgemodel">Judge model</span>
           <input id="optJudgeModel" list="judgeModels" placeholder="model id" />
           <datalist id="judgeModels"></datalist>
         </div>
         <div class="keyrow" id="keyRow" hidden>
-          <input id="providerBase" type="text" placeholder="Base URL" hidden />
-          <input id="awsRegion" type="text" placeholder="AWS region, e.g. us-east-1" autocomplete="off" hidden />
-          <input id="awsProfile" type="text" placeholder="AWS profile (optional)" autocomplete="off" hidden />
+          <input id="providerBase" type="text" data-i18n-ph="ph.baseurl" placeholder="Base URL" hidden />
+          <input id="awsRegion" type="text" data-i18n-ph="ph.awsregion" placeholder="AWS region, e.g. us-east-1" autocomplete="off" hidden />
+          <input id="awsProfile" type="text" data-i18n-ph="ph.awsprofile" placeholder="AWS profile (optional)" autocomplete="off" hidden />
           <input id="providerKey" type="password" placeholder="API key" autocomplete="off" />
-          <button class="btn sm" id="saveKeyBtn">Use</button>
+          <button class="btn sm" id="saveKeyBtn" data-i18n="btn.usekey">Use</button>
         </div>
         <div class="optnote" id="providerNote"></div>
       </div>
 
       <div class="field" style="margin:16px 0 0">
-        <span class="eyebrow">Benchmark prompts</span>
+        <span class="eyebrow" data-i18n="input.samples">Benchmark prompts</span>
         <div class="samples" id="samples"></div>
       </div>
     </div>
@@ -106,16 +107,16 @@
   <!-- ══════════ CENTRE: viewer ══════════ -->
   <div class="col center">
     <div class="vtools">
-      <button class="vt on" data-view="iso">ISO</button>
-      <button class="vt" data-view="front">FRONT</button>
-      <button class="vt" data-view="top">TOP</button>
-      <button class="vt" data-view="right">RIGHT</button>
+      <button class="vt on" data-view="iso" data-i18n="view.iso">ISO</button>
+      <button class="vt" data-view="front" data-i18n="view.front">FRONT</button>
+      <button class="vt" data-view="top" data-i18n="view.top">TOP</button>
+      <button class="vt" data-view="right" data-i18n="view.right">RIGHT</button>
       <div class="spacer" style="flex:1"></div>
-      <button class="vt" id="fitBtn">FIT</button>
-      <button class="vt" id="wireBtn">WIREFRAME</button>
-      <button class="vt" id="spinBtn">SPIN</button>
+      <button class="vt" id="fitBtn" data-i18n="view.fit">FIT</button>
+      <button class="vt" id="wireBtn" data-i18n="view.wire">WIREFRAME</button>
+      <button class="vt" id="spinBtn" data-i18n="view.spin">SPIN</button>
       <button class="btn sm" id="drawBtn" disabled>
-        <svg class="icn" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M9 9v11"/></svg>Drawing
+        <svg class="icn" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M9 9v11"/></svg><span data-i18n="view.drawing">Drawing</span>
       </button>
     </div>
 
@@ -129,8 +130,8 @@
       <div class="ov" id="ovEmpty">
         <div class="empty">
           <svg class="empty-art" viewBox="0 0 24 24" fill="none" stroke="#4A5768" stroke-width="1"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
-          <h3>Nothing built yet</h3>
-          <p>Describe a part on the left. Five agents plan it, write CadQuery, run
+          <h3 data-i18n="empty.title">Nothing built yet</h3>
+          <p data-i18n="empty.body">Describe a part on the left. Five agents plan it, write CadQuery, run
              it through the OpenCASCADE kernel and check the result before
              anything appears here.</p>
         </div>
@@ -146,12 +147,12 @@
       <div class="ov" id="ovErr" hidden>
         <div class="empty">
           <svg class="empty-art" viewBox="0 0 24 24" fill="none" stroke="#7A3038" stroke-width="1"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
-          <h3 id="errTitle">The run could not complete</h3>
+          <h3 id="errTitle" data-i18n="err.title">The run could not complete</h3>
           <div class="quote" id="errMsg"></div>
           <p id="errFix"></p>
           <div class="row">
-            <button class="btn primary" id="errRetry">Try again</button>
-            <button class="btn" id="errKeep" hidden>Show best attempt</button>
+            <button class="btn primary" id="errRetry" data-i18n="err.retry">Try again</button>
+            <button class="btn" id="errKeep" data-i18n="err.keep" hidden>Show best attempt</button>
           </div>
         </div>
       </div>
@@ -159,7 +160,7 @@
       <div class="minfo" id="minfo" hidden>
         <div class="mstat">
           <svg class="icn" viewBox="0 0 24 24" id="mIcon" style="color:var(--valid)"><path d="M20 6 9 17l-5-5"/></svg>
-          <span id="mtitle">Model generated</span>
+          <span id="mtitle" data-i18n="facts.validated">Validated</span>
         </div>
         <div class="mfacts" id="mfacts"></div>
       </div>
@@ -177,21 +178,21 @@
 
       <div class="rsec ai">
         <div class="phead">
-          <h2>Design Plan</h2>
+          <h2 data-i18n="plan.heading">Design Plan</h2>
           <div class="spacer" style="flex:1"></div>
-          <span class="eyebrow" id="genModelLabel">PLANNER</span>
+          <span class="eyebrow" id="genModelLabel" data-i18n="label.planner">PLANNER</span>
         </div>
         <div class="ai-body" id="planBody">
           <div class="await">
             <svg class="icn" viewBox="0 0 24 24" style="opacity:.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
-            No part planned yet.
+            <span data-i18n="plan.none">No part planned yet.</span>
           </div>
         </div>
       </div>
 
       <div class="rsec code">
         <div class="phead">
-          <h2>Generated CadQuery</h2>
+          <h2 data-i18n="code.heading">Generated CadQuery</h2>
           <div class="spacer" style="flex:1"></div>
           <span class="eyebrow" id="codeStat">— — —</span>
         </div>
@@ -203,7 +204,7 @@
           </div>
         </div>
         <div class="coderow">
-          <button class="btn sm" id="copyBtn"><svg class="icn" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="btn sm" id="copyBtn"><svg class="icn" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span data-i18n="code.copy">Copy</span></button>
           <button class="btn sm" id="dlPy"><svg class="icn" viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg>.py</button>
           <button class="btn sm" id="dlStep">STEP</button>
           <button class="btn sm" id="dlStl">STL</button>
@@ -212,14 +213,14 @@
 
       <div class="rsec val">
         <div class="phead">
-          <h2>Validation</h2>
+          <h2 data-i18n="val.heading">Validation</h2>
           <div class="spacer" style="flex:1"></div>
-          <span class="eyebrow" id="judgeModelLabel">JUDGE</span>
+          <span class="eyebrow" id="judgeModelLabel" data-i18n="label.judge">JUDGE</span>
         </div>
         <div class="ai-body" id="valBody">
           <div class="await">
             <svg class="icn" viewBox="0 0 24 24" style="opacity:.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
-            Nothing validated yet.
+            <span data-i18n="val.none">Nothing validated yet.</span>
           </div>
         </div>
       </div>
@@ -235,21 +236,21 @@
     <div id="actDiff"></div>
   </div>
   <div class="cmd-side">
-    <span class="eyebrow">Natural-language editor</span>
-    <span style="font-size:10.5px;color:var(--ink-dim)">Edits the current model</span>
+    <span class="eyebrow" data-i18n="edit.heading">Natural-language editor</span>
+    <span style="font-size:10.5px;color:var(--ink-dim)" data-i18n="edit.sub">Edits the current model</span>
   </div>
   <div class="cmd-in">
     <svg class="icn" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg>
-    <input id="cmdIn" placeholder="Ask for a change…  e.g. make it 15 mm thick, or add a reinforcing gusset" disabled />
+    <input id="cmdIn" data-i18n-ph="edit.placeholder" placeholder="Ask for a change…  e.g. make it 15 mm thick, or add a reinforcing gusset" disabled />
   </div>
-  <button class="btn primary" id="applyBtn" disabled style="height:36px;padding:0 16px">Apply change</button>
+  <button class="btn primary" id="applyBtn" data-i18n="edit.apply" disabled style="height:36px;padding:0 16px">Apply change</button>
 </div>
 </div>
 
 <!-- ══════════ history drawer ══════════ -->
 <aside class="hist" id="hist">
   <div class="hist-hd">
-    <h3>Run History</h3>
+    <h3 data-i18n="hist.heading">Run History</h3>
     <div class="spacer" style="flex:1"></div>
     <button class="x" id="histClose"><svg class="icn" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </div>
@@ -259,17 +260,18 @@
 <!-- ══════════ drawing sheet ══════════ -->
 <div class="sheet" id="sheet">
   <div class="sheet-bar">
-    <span class="eyebrow">ENGINEERING DRAWING</span>
+    <span class="eyebrow" data-i18n="draw.heading">ENGINEERING DRAWING</span>
     <div class="spacer" style="flex:1"></div>
-    <button class="btn sm" id="expPng">Export PNG</button>
-    <button class="btn sm primary" id="back3d">Back to 3D</button>
+    <button class="btn sm" id="expPng" data-i18n="draw.exportpng">Export PNG</button>
+    <button class="btn sm primary" id="back3d" data-i18n="draw.back3d">Back to 3D</button>
   </div>
   <div class="sheet-scroll"><div class="paper" id="paper"></div></div>
 </div>
 
-<div class="lightbox" id="lightbox" hidden><img id="lightboxImg" alt="Three-view render" /></div>
+<div class="lightbox" id="lightbox" hidden><img id="lightboxImg" data-i18n-alt="val.renderalt" alt="Three-view render" /></div>
 <div class="toast" id="toast"></div>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/api.js"></script>
 <script src="/static/viewer.js"></script>
 <script src="/static/app.js"></script>

@@ -35,6 +35,7 @@ from .events import (
     STATUS_STARTED,
 )
 from . import budget as budget_mod
+from . import i18n
 from .providers import DEFAULT_PROVIDER, LLMConfig, resolve
 from .replay import clone_run, is_replayable, replay_into
 from .instrument import (
@@ -87,6 +88,10 @@ class JobOptions:
     provider: str = DEFAULT_PROVIDER
     generation_model: str = ""
     judge_model: str = ""
+    #: The language this run reports itself in. Only messages a person reads
+    #: are translated - what the agents are told stays in English, so the
+    #: pipeline behaves identically whichever language the interface is in.
+    lang: str = i18n.DEFAULT_LANG
 
     @classmethod
     def from_dict(cls, raw: Optional[dict]) -> "JobOptions":
@@ -102,6 +107,7 @@ class JobOptions:
             provider=str(raw.get("provider") or DEFAULT_PROVIDER),
             generation_model=str(raw.get("generation_model") or ""),
             judge_model=str(raw.get("judge_model") or ""),
+            lang=i18n.normalise(raw.get("lang")),
         )
 
     def llm_config(self) -> LLMConfig:
@@ -252,7 +258,9 @@ class JobManager:
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
-        ctx.budget = budget_mod.Budget(limit=job.options.token_budget)
+        ctx.lang = job.options.lang
+        ctx.budget = budget_mod.Budget(limit=job.options.token_budget,
+                                       lang=job.options.lang)
         set_context(ctx)
         job.status = STATUS_RUNNING
         job.started_at = time.time()
@@ -263,9 +271,8 @@ class JobManager:
             # one model grading its own work is the bias that design avoids.
             sink.emit(
                 PHASE_JOB, STATUS_INFO,
-                f"Generation and judging both use {ctx.llm.judge_model}, so "
-                f"the Judge is grading its own work. Pick a different judge "
-                f"model for an independent check.")
+                i18n.t("job.samemodel", job.options.lang,
+                       model=ctx.llm.judge_model))
 
         try:
             from autofab import agents
@@ -284,7 +291,8 @@ class JobManager:
                     routed = catalog_run.find(job.prompt)
                 except Exception as error:
                     sink.emit(PHASE_JOB, STATUS_INFO,
-                              f"Catalogue lookup skipped: {error}")
+                              i18n.t("job.catalogskipped", job.options.lang,
+                                     error=error))
             if routed is not None:
                 try:
                     catalog_run.serve(ctx, routed, job.directory / "work")
@@ -307,8 +315,8 @@ class JobManager:
                 except Exception as error:
                     sink.emit(
                         PHASE_JOB, STATUS_INFO,
-                        f"The catalogue part would not build here, so the "
-                        f"pipeline will generate it instead: {error}")
+                        i18n.t("job.catalogunbuildable", job.options.lang,
+                               error=error))
                     ctx.source = "pipeline"
                     ctx.versions.clear()
 
@@ -399,12 +407,14 @@ class JobManager:
             job.status = STATUS_DONE
             job.finished_at = time.time()
             sink.emit(PHASE_JOB, STATUS_FAILED,
-                      "That run cannot be edited in this session.", edit=True)
+                      i18n.t("edit.nocontext", job.options.lang), edit=True)
             return
 
         ctx.llm = job.options.llm_config()
         ctx.ground_dimensions = job.options.ground_dimensions
-        ctx.budget = budget_mod.Budget(limit=job.options.token_budget)
+        ctx.lang = job.options.lang
+        ctx.budget = budget_mod.Budget(limit=job.options.token_budget,
+                                       lang=job.options.lang)
         set_context(ctx)
         job.status = STATUS_RUNNING
         started = time.time()
@@ -439,7 +449,8 @@ class JobManager:
                 # no agent is needed to resolve it.
                 job.status = STATUS_DONE
                 sink.emit(PHASE_JOB, STATUS_FAILED,
-                          f"Not applied - {plan.reason}", edit=True)
+                          i18n.t("edit.notapplied", job.options.lang,
+                                 reason=plan.reason), edit=True)
                 return
             elif _llm_problems(job):
                 # The patch path needs no model, so it stays available with no
@@ -447,18 +458,16 @@ class JobManager:
                 job.status = STATUS_DONE
                 sink.emit(
                     PHASE_JOB, STATUS_FAILED,
-                    f"That is not a parameter change ({plan.reason}), so it "
-                    f"needs the Refiner agent - but no model backend is "
-                    f"available: {_llm_problems(job)[0]} Try naming a "
-                    f"dimension the script declares.",
+                    i18n.t("edit.needsrefiner", job.options.lang,
+                           reason=plan.reason, problem=_llm_problems(job)[0]),
                     edit=True)
                 return
             else:
                 ctx.method = "refiner agent"
                 ctx.changes = []
                 sink.emit(PHASE_EDIT, STATUS_INFO,
-                          f"Not a parameter change ({plan.reason}) - "
-                          f"asking the Refiner agent.",
+                          i18n.t("edit.askingrefiner", job.options.lang,
+                                 reason=plan.reason),
                           method=ctx.method, instruction=instruction,
                           reason=plan.reason)
                 new_code = agents.refine_geometry(
@@ -475,12 +484,9 @@ class JobManager:
                     job.status = STATUS_DONE
                     sink.emit(
                         PHASE_JOB, STATUS_FAILED,
-                        f"Not applied - the Refiner returned version "
-                        f"{reverted} unchanged instead of editing version "
-                        f"{previous['iteration']}, which would have undone "
-                        f"your earlier edits. Version "
-                        f"{previous['iteration']} is still the latest. Try "
-                        f"naming the dimension you want changed.",
+                        i18n.t("edit.reverted", job.options.lang,
+                               reverted=reverted,
+                               current=previous["iteration"]),
                         edit=True)
                     return
 
@@ -506,8 +512,8 @@ class JobManager:
                 job.status = STATUS_DONE
                 sink.emit(
                     PHASE_JOB, STATUS_FAILED,
-                    f"That change could not be built: {result.error_type}. "
-                    f"The previous version is unchanged.",
+                    i18n.t("edit.unbuildable", job.options.lang,
+                           error_type=result.error_type),
                     error=(result.error or "")[-2000:], edit=True)
                 return
 
@@ -536,7 +542,8 @@ class JobManager:
         except Exception as exc:
             job.status = STATUS_DONE
             sink.emit(PHASE_JOB, STATUS_FAILED,
-                      f"The edit failed: {type(exc).__name__}: {exc}",
+                      i18n.t("edit.failed", job.options.lang,
+                             error=f"{type(exc).__name__}: {exc}"),
                       traceback=traceback.format_exc()[-4000:], edit=True)
         finally:
             # Every terminal path of an edit lands here, including the early

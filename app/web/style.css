@@ -15,8 +15,15 @@
   --err:#F2606A;
   --steel:#A8B4C4;
 
-  --ui:"Segoe UI Variable Display","Segoe UI",-apple-system,system-ui,Roboto,sans-serif;
-  --mono:"Cascadia Code","JetBrains Mono",Consolas,"SF Mono",ui-monospace,monospace;
+  /* The Japanese faces come after the Latin ones on purpose: a browser walks
+     the stack per character, so Latin still renders in Segoe UI and only the
+     kana and kanji fall through to a face that has them. Yu Gothic UI ships
+     with Windows, Hiragino with macOS, Noto Sans CJK with most Linux. */
+  --ui:"Segoe UI Variable Display","Segoe UI",-apple-system,system-ui,Roboto,
+       "Yu Gothic UI","Hiragino Sans","Hiragino Kaku Gothic ProN",Meiryo,
+       "Noto Sans JP","Noto Sans CJK JP",sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono",Consolas,"SF Mono",ui-monospace,
+         "Yu Gothic UI",Meiryo,"Noto Sans JP",monospace;
 
   --r:5px;
   --hdr:52px;
@@ -589,3 +596,25 @@ textarea.src{
 .optnote.ok{color:var(--valid)}
 .optnote.warn{color:var(--warn)}
 .optnote code{font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+
+/* ---------- interface language ---------- */
+.langsw{display:flex;gap:2px;border:1px solid var(--line);border-radius:var(--r);padding:2px;background:var(--panel-2)}
+.lang{
+  padding:3px 9px;border-radius:3px;font-size:11px;line-height:1.4;
+  color:var(--ink-dim);transition:background .13s,color .13s;white-space:nowrap;
+}
+.lang:hover{color:var(--ink-2)}
+.lang.on{background:var(--raise);color:var(--ink);font-weight:600}
+
+/* Japanese sets tighter than Latin at the same size and has no case, so the
+   uppercase tracking used on the eyebrow labels reads as gaps rather than as
+   emphasis. Only the typography changes; every colour and box stays put. */
+html[lang="ja"] body{line-height:1.6;font-size:12.5px}
+html[lang="ja"] .eyebrow{letter-spacing:.04em;font-family:var(--ui);font-size:10px}
+html[lang="ja"] .pill{letter-spacing:0;font-family:var(--ui)}
+html[lang="ja"] .vt{letter-spacing:.02em;font-family:var(--ui);font-size:10px}
+html[lang="ja"] .hbadge{letter-spacing:.02em}
+html[lang="ja"] .fact span{letter-spacing:.02em;font-size:9px}
+html[lang="ja"] .rcap,html[lang="ja"] .judge-src{letter-spacing:.02em}
+/* Kanji at 9px is a smudge; the run log and the axis label need the extra. */
+html[lang="ja"] .plog,html[lang="ja"] .scalebar span{font-size:10.5px}

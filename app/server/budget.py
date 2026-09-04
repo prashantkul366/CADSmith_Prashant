@@ -21,6 +21,8 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from app.server import i18n
+
 #: Tokens per run, counting input and output together. Generous enough that a
 #: normal part - five agents, two refinement rounds, a vision judge each time -
 #: finishes well inside it, and low enough that a loop which is not converging
@@ -46,6 +48,9 @@ class Budget:
     limit: int = DEFAULT_BUDGET
     #: Set once the ceiling is hit, so the reason survives into the run record.
     stopped: str = ""
+    #: The language the person who started this run is reading. The ceiling is
+    #: reported to them, not to a model, so it is translated.
+    lang: str = i18n.DEFAULT_LANG
 
     def spent(self, usage: dict) -> int:
         return int(usage.get("input_tokens", 0)) + int(usage.get("output_tokens", 0))
@@ -66,13 +71,10 @@ class Budget:
         if not self.exhausted(usage):
             return
         spent = self.spent(usage)
-        self.stopped = (
-            f"This run reached its {self.limit:,}-token budget after "
-            f"{usage.get('calls', 0)} model calls ({spent:,} tokens), so it "
-            f"was stopped before spending more. The attempts it did produce "
-            f"are still here. Raise CADSMITH_TOKEN_BUDGET if this part "
-            f"genuinely needs more, or lower the refinement iterations."
-        )
+        self.stopped = i18n.t(
+            "budget.stopped", self.lang,
+            limit=f"{self.limit:,}", calls=usage.get("calls", 0),
+            spent=f"{spent:,}")
         raise BudgetExceeded(self.stopped)
 
 

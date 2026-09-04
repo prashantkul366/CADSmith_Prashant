@@ -26,7 +26,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from . import providers, tls
+from . import i18n, providers, tls
 from .drawing import ensure_sheet
 from .jobs import JobManager, JobOptions, STATUS_DONE, STATUS_ERROR
 
@@ -261,19 +261,26 @@ def examples() -> JSONResponse:
 async def create_job(request: Request) -> JSONResponse:
     body = await _json_body(request)
     prompt = (body.get("prompt") or "").strip()
+    raw_options = body.get("options") if isinstance(body.get("options"), dict) else {}
+    # The switch in the interface wins over the browser's own preference:
+    # someone who moved it did so on purpose.
+    lang = (i18n.normalise(raw_options.get("lang")) if raw_options.get("lang")
+            else _lang(request))
     if not prompt:
-        raise HTTPException(status_code=400, detail="A prompt is required.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.needprompt", lang))
     if len(prompt) > 4000:
-        raise HTTPException(status_code=400, detail="Prompt is too long.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.promptlong", lang))
 
     status = _health()
     if not status["checks"]["cadquery"]["ok"]:
         raise HTTPException(
             status_code=503,
-            detail="CadQuery is not available in this environment: "
-                   + status["checks"]["cadquery"]["detail"],
+            detail=i18n.t("http.nocadquery", lang,
+                          detail=status["checks"]["cadquery"]["detail"]),
         )
-    options = JobOptions.from_dict(body.get("options"))
+    options = JobOptions.from_dict({**raw_options, "lang": lang})
 
     # A standard part is answered from the catalogue with no model call at
     # all, so requiring a key for one would refuse work the app can plainly
@@ -301,37 +308,45 @@ async def create_job(request: Request) -> JSONResponse:
 @app.post("/api/jobs/{job_id}/edit")
 async def edit_job(job_id: str, request: Request) -> JSONResponse:
     """Apply a natural-language change to the job's latest version."""
+    lang = _lang(request)
     job = manager.get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="No such job.")
+        raise HTTPException(status_code=404, detail=i18n.t("http.nojob", lang))
     if not job.versions:
-        raise HTTPException(
-            status_code=409, detail="That run produced nothing to edit.")
+        raise HTTPException(status_code=409,
+                            detail=i18n.t("http.nothingtoedit", lang))
     if job.status in ("queued", "running"):
-        raise HTTPException(
-            status_code=409, detail="That run is still working; wait for it to finish.")
+        raise HTTPException(status_code=409,
+                            detail=i18n.t("http.stillworking", lang))
 
     body = await _json_body(request)
     instruction = (body.get("instruction") or "").strip()
     if not instruction:
-        raise HTTPException(status_code=400, detail="An instruction is required.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.needinstruction", lang))
     if len(instruction) > 1000:
-        raise HTTPException(status_code=400, detail="Instruction is too long.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.instructionlong", lang))
+
+    # An edit reports itself in whatever language the switch is on now, which
+    # need not be the language the run was started in.
+    job.options.lang = lang
 
     status = _health()
     if not status["checks"]["cadquery"]["ok"]:
-        raise HTTPException(
-            status_code=503,
-            detail="CadQuery is not available, so nothing can be rebuilt.")
+        raise HTTPException(status_code=503,
+                            detail=i18n.t("http.norebuild", lang))
 
     base_version = body.get("version")
     if base_version is not None:
         try:
             base_version = int(base_version)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Invalid version.")
+            raise HTTPException(status_code=400,
+                                detail=i18n.t("http.badversion", lang))
         if not any(v.get("iteration") == base_version for v in job.versions):
-            raise HTTPException(status_code=404, detail="No such version.")
+            raise HTTPException(status_code=404,
+                                detail=i18n.t("http.noversion", lang))
 
     manager.submit_edit(job, instruction, base_version=base_version)
     return JSONResponse({"job": job.summary()}, status_code=202)
@@ -340,13 +355,13 @@ async def edit_job(job_id: str, request: Request) -> JSONResponse:
 @app.post("/api/jobs/{job_id}/replay")
 async def replay_job(job_id: str, request: Request) -> JSONResponse:
     """Replay a recorded run: its own events, against its own artifacts."""
+    lang = _lang(request)
     source = manager.get(job_id)
     if source is None:
-        raise HTTPException(status_code=404, detail="No such job.")
+        raise HTTPException(status_code=404, detail=i18n.t("http.nojob", lang))
     if not manager.can_replay(source):
-        raise HTTPException(
-            status_code=409,
-            detail="That run has no recorded events or geometry to replay.")
+        raise HTTPException(status_code=409,
+                            detail=i18n.t("http.noreplay", lang))
 
     body = await _json_body(request)
     try:
@@ -382,8 +397,10 @@ async def set_provider_key(provider_id: str, request: Request) -> JSONResponse:
     Never written to disk, never logged, and never returned to the browser -
     the response says only whether the provider is now usable.
     """
+    lang = _lang(request)
     if provider_id not in providers.BUILTIN:
-        raise HTTPException(status_code=404, detail="Unknown provider.")
+        raise HTTPException(status_code=404,
+                            detail=i18n.t("http.noprovider", lang))
 
     body = await _json_body(request)
     api_key = (body.get("api_key") or "").strip()
@@ -391,7 +408,8 @@ async def set_provider_key(provider_id: str, request: Request) -> JSONResponse:
     region = (body.get("aws_region") or "").strip()
     profile = (body.get("aws_profile") or "").strip()
     if any(len(value) > 500 for value in (api_key, base_url, region, profile)):
-        raise HTTPException(status_code=400, detail="Value is too long.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.valuelong", lang))
 
     providers.set_session_key(provider_id, api_key=api_key, base_url=base_url)
     # Bedrock has no key to hold: what it needs is a region, and optionally a
@@ -415,10 +433,11 @@ def list_jobs() -> JSONResponse:
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str) -> JSONResponse:
+def get_job(job_id: str, request: Request) -> JSONResponse:
     job = manager.get(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="No such job.")
+        raise HTTPException(status_code=404,
+                            detail=i18n.t("http.nojob", _lang(request)))
     sink = manager.sink(job_id)
     return JSONResponse({
         "job": job.summary(),
@@ -435,7 +454,8 @@ async def stream_events(job_id: str, request: Request, from_seq: int = 0):
     """
     sink = manager.sink(job_id)
     if sink is None:
-        raise HTTPException(status_code=404, detail="No such job.")
+        raise HTTPException(status_code=404,
+                            detail=i18n.t("http.nojob", _lang(request)))
 
     last_event_id = request.headers.get("last-event-id")
     if last_event_id and last_event_id.isdigit():
@@ -480,29 +500,33 @@ async def stream_events(job_id: str, request: Request, from_seq: int = 0):
 
 
 @app.get("/api/jobs/{job_id}/v/{version}/{artifact}")
-def get_artifact(job_id: str, version: int, artifact: str):
+def get_artifact(job_id: str, version: int, artifact: str, request: Request):
+    lang = _lang(request)
     if artifact not in ALLOWED_ARTIFACTS:
-        raise HTTPException(status_code=404, detail="Unknown artifact.")
+        raise HTTPException(status_code=404,
+                            detail=i18n.t("http.noartifact", lang))
 
     # The drawing sheet is derived from the STEP solid, so it is built on
     # first request and cached beside the other artifacts.
     if artifact == "drawing.svg":
         job = manager.get(job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail="No such job.")
+            raise HTTPException(status_code=404, detail=i18n.t("http.nojob", lang))
         version_dir = job.directory / f"v{int(version)}"
         if not version_dir.is_dir():
-            raise HTTPException(status_code=404, detail="No such version.")
+            raise HTTPException(status_code=404,
+                                detail=i18n.t("http.noversion", lang))
         try:
             ensure_sheet(version_dir, job.prompt, job.id, int(version))
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
-                detail=f"Could not build the drawing: {exc}") from exc
+                detail=i18n.t("http.nodrawing", lang, error=exc)) from exc
 
     path = manager.artifact_path(job_id, version, artifact)
     if path is None:
-        raise HTTPException(status_code=404, detail="Artifact not available.")
+        raise HTTPException(status_code=404,
+                            detail=i18n.t("http.artifactmissing", lang))
 
     filename = f"{job_id}_v{version}_{artifact}"
     return FileResponse(
@@ -512,13 +536,30 @@ def get_artifact(job_id: str, version: int, artifact: str):
     )
 
 
+def _lang(request: Optional[Request]) -> str:
+    """The language to answer this request in.
+
+    An explicit ``?lang=`` wins, because the interface has a switch and the
+    person may have moved it away from what their browser advertises.
+    Otherwise ``Accept-Language`` decides, which is what a first visit has.
+    """
+    if request is None:
+        return i18n.DEFAULT_LANG
+    explicit = request.query_params.get("lang")
+    if explicit:
+        return i18n.normalise(explicit)
+    return i18n.from_header(request.headers.get("accept-language"))
+
+
 async def _json_body(request: Request) -> dict:
     try:
         body = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Expected a JSON body.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.jsonbody", _lang(request)))
     if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="Expected a JSON object.")
+        raise HTTPException(status_code=400,
+                            detail=i18n.t("http.jsonobject", _lang(request)))
     return body
 
 
@@ -531,7 +572,7 @@ async def _json_body(request: Request) -> dict:
 def index() -> HTMLResponse:
     page = WEB_DIR / "index.html"
     if not page.exists():
-        raise HTTPException(status_code=500, detail="Frontend is not built.")
+        raise HTTPException(status_code=500, detail=i18n.t("http.nofrontend"))
     return HTMLResponse(page.read_text())
 
 

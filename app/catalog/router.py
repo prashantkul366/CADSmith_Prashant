@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
-from app.catalog import library, parts, standards, verify
+from app.catalog import japanese, library, parts, standards, verify
 from app.catalog.parts import CatalogPart
 
 # A standard part named inside a bigger noun is a component of a custom part,
@@ -221,7 +221,18 @@ def select(text: str) -> Optional[Routed]:
     # The backends are part of the cache key, not just the text: what the
     # catalogue can answer depends on which libraries are loaded, and keying
     # on text alone returned a cq_gears part after cq_gears was switched off.
-    return _select_cached(text, library.HAVE_GEARS, library.HAVE_WAREHOUSE)
+    found = _select_cached(text, library.HAVE_GEARS, library.HAVE_WAREHOUSE)
+    if found is not None or not japanese.has_japanese(text):
+        return found
+
+    # Every pattern below reads English, so a Japanese request matches none of
+    # them and a Japanese user loses the catalogue entirely. Rewriting the
+    # request into the vocabulary those patterns already speak recovers it.
+    # Second, never first: an English request cannot reach this, and a
+    # Japanese one that already matched is not rewritten either, so the
+    # rewrite can only add matches - it can never change an existing one.
+    return _select_cached(japanese.to_english(text),
+                          library.HAVE_GEARS, library.HAVE_WAREHOUSE)
 
 
 @lru_cache(maxsize=64)

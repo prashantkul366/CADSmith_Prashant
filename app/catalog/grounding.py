@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.catalog import standards
+from app.catalog import japanese, standards
 
 # At most this many subjects, so a request naming a dozen sizes cannot bury
 # the actual request under reference material.
@@ -107,6 +107,12 @@ def facts_for(text: str) -> list[Fact]:
     """Every standard fact the request implicates, most specific first."""
     found: list[Fact] = []
     seen: set[str] = set()
+
+    # A designation written flush against a kanji - 6203軸受, NEMA 17モーター -
+    # has no word boundary after it, so every \b-anchored pattern below misses
+    # it. Padding the seam is matching only: what the Planner is sent below is
+    # built from the original text.
+    text = japanese.spaced(text)
 
     def add(fact: Fact) -> None:
         if fact.subject not in seen:

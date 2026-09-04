@@ -43,6 +43,7 @@ from autofab.validator import (
 )
 
 from . import budget as budget_mod
+from . import i18n
 from . import spec
 from .providers import LLMConfig, build_client
 
@@ -117,6 +118,10 @@ class RunContext:
     #: What this run may spend. Checked before every model call, so a loop
     #: that is not converging stops costing money instead of continuing.
     budget: Optional[budget_mod.Budget] = None
+    #: The language the person who started this run is reading. Only the
+    #: messages meant for them are translated; what the Refiner is told stays
+    #: in English, because that is the language its instructions are in.
+    lang: str = i18n.DEFAULT_LANG
     #: Provenance stamped onto the next published version.
     source: str = "pipeline"
     method: str = ""
@@ -268,11 +273,13 @@ def install_agent_hooks() -> None:
         if sized or components:
             return
         note = " ".join(str(plan.get("notes") or "").split())[:200]
+        # Read the context here rather than closing over one: this runs from
+        # both the grounded and ungrounded paths, and only they hold a ctx.
+        current = _current.get()
+        lang = current.lang if current is not None else i18n.DEFAULT_LANG
         raise PipelineMessage(
-            "The Planner did not find a part to make in this request: it "
-            "returned no components and no overall size. Describe a part - "
-            "its shape, size and features."
-            + (f' The Planner noted: "{note}"' if note else "")
+            i18n.t("plan.empty", lang)
+            + (i18n.t("plan.empty.note", lang, note=note) if note else "")
         )
 
     def grounded_plan(prompt, *args, **kwargs):
@@ -305,11 +312,8 @@ def install_agent_hooks() -> None:
             # in the app.
             said = " ".join((ctx.last_reply or "").split())[:220]
             raise PipelineMessage(
-                "The Planner replied with prose instead of a design plan, "
-                "which usually means the model did not treat this as a "
-                "request for a physical part. Describe a part to make - "
-                "its shape, size and features."
-                + (f' The model said: "{said}"' if said else "")
+                i18n.t("plan.prose", ctx.lang)
+                + (i18n.t("plan.prose.said", ctx.lang, said=said) if said else "")
             ) from None
         _refuse_empty_plan(plan)
         ctx.design_plan = plan if isinstance(plan, dict) else None

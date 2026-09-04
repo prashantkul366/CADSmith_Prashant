@@ -28,6 +28,7 @@ import json
 import time
 
 from app.catalog import router
+from app.server import i18n
 from app.catalog.router import Routed
 from app.server.events import (
     PHASE_CATALOG, PHASE_VERSION, STATUS_INFO, STATUS_OK,
@@ -54,7 +55,7 @@ def serve(ctx: RunContext, routed: Routed, work_dir) -> dict:
 
     ctx.emit(
         PHASE_CATALOG, STATUS_OK,
-        f"{part.title} - served from the catalogue, not generated",
+        i18n.t("catalog.served", ctx.lang, title=part.title),
         part_id=part.id, title=part.title, standard=part.standard,
         backend=routed.source, parameters=part.parameters,
         verified=routed.report.summary(),
@@ -115,6 +116,6 @@ def serve(ctx: RunContext, routed: Routed, work_dir) -> dict:
     ctx.versions.append(version)
     ctx.emit(PHASE_VERSION, STATUS_OK, **version)
     ctx.emit(PHASE_CATALOG, STATUS_INFO,
-             f"Built in {(time.time() - started) * 1000:.0f} ms with no model "
-             f"call. Edit it like any other part - it is parametric source.")
+             i18n.t("catalog.built", ctx.lang,
+                    ms=f"{(time.time() - started) * 1000:.0f}"))
     return version

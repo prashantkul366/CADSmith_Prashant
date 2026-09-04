@@ -6,8 +6,15 @@
 
 const API = (() => {
 
+  /* Every request says which language its answer should be in. The server
+     refuses and explains in that language, so an error toast is not the one
+     English sentence in an otherwise Japanese interface. */
+  const withLang = url =>
+    url + (url.includes("?") ? "&" : "?") + "lang="
+        + encodeURIComponent(I18N.current);
+
   async function json(url, options) {
-    const response = await fetch(url, options);
+    const response = await fetch(withLang(url), options);
     let body = null;
     try { body = await response.json(); } catch (_) { /* empty or non-JSON */ }
     if (!response.ok) {
@@ -45,7 +52,10 @@ const API = (() => {
       return json("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, options }),
+        body: JSON.stringify({
+          prompt,
+          options: Object.assign({ lang: I18N.current }, options),
+        }),
       }).then(d => d.job);
     },
 
