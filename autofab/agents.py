@@ -32,25 +32,93 @@ def reset_token_usage():
     _token_usage["calls"] = 0
 
 
-def _get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# ---------------------------------------------------------------------------
+# Backend selection: first-party Claude API or Claude on Amazon Bedrock
+# ---------------------------------------------------------------------------
+
+# "anthropic" (default) talks to api.anthropic.com with ANTHROPIC_API_KEY.
+# "bedrock" talks to Claude on Amazon Bedrock using the ambient AWS credential
+# chain (SSO profile, instance role, env vars) - no Anthropic API key needed.
+LLM_BACKEND = os.getenv("LLM_BACKEND", "anthropic").strip().lower()
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("BEDROCK_REGION") or "us-east-1"
+AWS_PROFILE = os.getenv("AWS_PROFILE") or None
+
+# The pipeline deliberately pairs a coder with a STRONGER judge, so the Judge is
+# not grading its own homework. Override per-run with CODER_MODEL / JUDGE_MODEL.
+_DEFAULT_CODER = "claude-sonnet-5"
+_DEFAULT_JUDGE = "claude-opus-5"
 
 
-def _call_claude(system: str, user: str, model: str = "claude-sonnet-4-5-20250929", max_tokens: int = 4096) -> str:
-    """Call Claude and return the text response. Tracks token usage."""
-    client = _get_client()
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    # Accumulate token usage
+def _model_id(name: str) -> str:
+    """Bedrock model IDs carry an `anthropic.` prefix; the direct API does not."""
+    if LLM_BACKEND == "bedrock" and not name.startswith("anthropic."):
+        return "anthropic." + name
+    return name
+
+
+CODER_MODEL = _model_id(os.getenv("CODER_MODEL", _DEFAULT_CODER))
+JUDGE_MODEL = _model_id(os.getenv("JUDGE_MODEL", _DEFAULT_JUDGE))
+
+# Generous ceiling: these models think adaptively by default, and thinking
+# tokens count against max_tokens. 4096 truncated real answers mid-script.
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "16000"))
+
+_client = None
+
+
+def _get_client():
+    """Build (once) the client for the configured backend."""
+    global _client
+    if _client is not None:
+        return _client
+    if LLM_BACKEND == "bedrock":
+        from anthropic import AnthropicBedrockMantle
+        kwargs = {"aws_region": AWS_REGION}
+        if AWS_PROFILE:
+            kwargs["aws_profile"] = AWS_PROFILE
+        _client = AnthropicBedrockMantle(**kwargs)
+    else:
+        _client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    return _client
+
+
+def _response_text(response) -> str:
+    """First text block of a response.
+
+    `response.content[0]` is NOT safe: with adaptive thinking on (the default on
+    Opus 5) the first block is a thinking block with no `.text`, which would
+    raise AttributeError on every call.
+    """
+    if getattr(response, "stop_reason", None) == "refusal":
+        detail = getattr(response, "stop_details", None)
+        raise RuntimeError(
+            f"Model declined the request (category="
+            f"{getattr(detail, 'category', None)}): {getattr(detail, 'explanation', '')}"
+        )
+    for block in response.content:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    raise ValueError(f"No text block in response (stop_reason={getattr(response, 'stop_reason', None)})")
+
+
+def _track(response):
     if hasattr(response, "usage") and response.usage:
         _token_usage["input_tokens"] += response.usage.input_tokens
         _token_usage["output_tokens"] += response.usage.output_tokens
     _token_usage["calls"] += 1
-    return response.content[0].text
+
+
+def _call_claude(system: str, user: str, model: str = None, max_tokens: int = None) -> str:
+    """Call the configured backend and return the text response. Tracks usage."""
+    client = _get_client()
+    response = client.messages.create(
+        model=model or CODER_MODEL,
+        max_tokens=max_tokens or MAX_TOKENS,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    _track(response)
+    return _response_text(response)
 
 
 # ---------------------------------------------------------------------------
@@ -365,22 +433,17 @@ def evaluate_geometry(
 
     message_content.append({"type": "text", "text": text_content})
 
-    # Call Opus with vision-capable message format
+    # Call the Judge model (stronger than the Coder) with vision-capable content
     client = _get_client()
     response = client.messages.create(
-        model="claude-opus-4-20250514",
-        max_tokens=4096,
+        model=JUDGE_MODEL,
+        max_tokens=MAX_TOKENS,
         system=VALIDATOR_SYSTEM,
         messages=[{"role": "user", "content": message_content}],
     )
+    _track(response)
 
-    # Track token usage
-    if hasattr(response, "usage") and response.usage:
-        _token_usage["input_tokens"] += response.usage.input_tokens
-        _token_usage["output_tokens"] += response.usage.output_tokens
-    _token_usage["calls"] += 1
-
-    text = response.content[0].text.strip()
+    text = _response_text(response).strip()
     if text.startswith("```json"):
         text = text[len("```json"):].strip()
     elif text.startswith("```"):

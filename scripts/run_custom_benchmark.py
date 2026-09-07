@@ -77,7 +77,9 @@ def load_entries(tiers: list[str], limit_per_tier: int = 0) -> list[dict]:
 
 def generate_reference_stl(reference_code: str, entry_id: str, output_dir: Path) -> str:
     """Execute reference code and return path to the generated STL."""
-    ref_stl_dir = output_dir / "reference_stls"
+    # Reuse the repo's committed reference STLs (data/dataset_v2/reference_stls)
+    # instead of regenerating them into every experiment directory.
+    ref_stl_dir = DATA_DIR / "reference_stls"
     ref_stl_dir.mkdir(parents=True, exist_ok=True)
 
     ref_stl_path = ref_stl_dir / f"{entry_id}.stl"
@@ -250,7 +252,10 @@ def main():
         "max_iterations": args.max_iterations if args.mode == "refinement" else 0,
         "max_error_retries": args.max_error_retries,
         "limit_per_tier": args.limit_per_tier,
-        "model": "claude-sonnet",
+        "backend": agents.LLM_BACKEND,
+        "model": agents.CODER_MODEL,
+        "judge_model": agents.JUDGE_MODEL,
+        "aws_region": agents.AWS_REGION if agents.LLM_BACKEND == "bedrock" else None,
         "pipeline": "full" if args.mode == "refinement" else "single-shot",
         "rag_config": "kb1+kb2",
         "vision": not args.no_vision,
